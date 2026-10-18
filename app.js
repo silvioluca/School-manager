@@ -24,6 +24,8 @@ const state = {
   usciteSelected: new Set(), // chiavi "anno|id" selezionate nell'elenco uscite didattiche
   rubricheSelected: new Set(), // id rubrica selezionati nell'elenco rubriche
   todoSelected: new Set(), // id to-do selezionati nell'elenco
+  bmSelected: new Set(),   // id alunno selezionati in Bonus/Malus
+  materialeSelected: new Set(), // id materiale selezionati nell'elenco
   reportMateria: 'all',    // filtro materia nella sezione Report
   reportAlunno: 'all',     // filtro alunno nella sezione Report
   filtroDa: '',            // filtro periodo-da (YYYY-MM-DD, '' = nessun limite): Voti, Lezioni, Compiti, Report
@@ -64,15 +66,19 @@ const state = {
 const charts = {};       // istanze Chart.js per distruzione/ricreazione
 const ALL_VIEWS = ['dashboard', 'alunni', 'bes', 'classi', 'voti', 'verifiche', 'rubriche', 'bonusmalus', 'lezioni', 'compiti', 'todo', 'orario', 'colloqui', 'appuntamenti', 'uscite', 'calendario', 'report', 'report-ore', 'report-os', 'materiale', 'alunno-detail', 'classe-detail', 'coordinamento', 'progettazione', 'item-note'];
 const VIEW_TITLES = {
-  dashboard: 'Dashboard', alunni: 'Alunni', classi: 'Classi', voti: 'Voti', lezioni: 'Lezioni', compiti: 'Compiti', orario: 'Orario', report: 'Report Voti',
+  dashboard: 'Dashboard', alunni: 'Elenco alunni', classi: 'Elenco classi', voti: 'Elenco voti', lezioni: 'Lezioni', compiti: 'Compiti', orario: 'Orario', report: 'Report voti',
   'alunno-detail': 'Scheda alunno', 'classe-detail': 'Scheda classe', verifiche: 'Verifiche', rubriche: 'Rubriche valutative', bonusmalus: 'Bonus/Malus',
   bes: 'BES', colloqui: 'Colloqui', appuntamenti: 'Appuntamenti', uscite: 'Uscite didattiche', calendario: 'Calendario', todo: 'To-do', 'item-note': 'Nota', 'report-ore': 'Report ore',
-  'report-os': 'Report Orali/Scritti', materiale: 'Materiale', coordinamento: 'Coordinamento', progettazione: 'Progettazione',
+  'report-os': 'Report orali/scritti', materiale: 'Materiale', coordinamento: 'Coordinamento', progettazione: 'Progettazione',
 };
 // Tipi di appuntamento istituzionale (collegi/consigli/incontri, anche pomeridiani o online)
 const TIPI_APPUNTAMENTO = {
   collegio: 'Collegio docenti', consiglio: 'Consiglio di classe', dipartimento: 'Dipartimento',
   glo: 'GLO', incontro: 'Incontro',
+};
+// Colore della pill Tipo nell'elenco Appuntamenti
+const TIPI_APPUNTAMENTO_COLORS = {
+  collegio: '#5b9bff', consiglio: '#e67e22', dipartimento: '#9b59b6', glo: '#e84393', incontro: '#16a085',
 };
 // Stati del kanban To-do, nell'ordine in cui compaiono le colonne
 const TODO_STATI = [
@@ -912,7 +918,7 @@ function renderDashboardOggi() {
   fillDashOggi('dash-compiti-scadenza-oggi', scadenzaOggi, anno, l => l.argomento || 'Lezione', l => l.compiti, 'Nessun compito in scadenza oggi.', l => fmtData(l.data));
   fillDashVerificheArrivo('dash-verifiche-arrivo', verificheArrivo, anno, 'Nessuna verifica o interrogazione in programma.');
   renderDashboardTodo();
-  renderDashboardApptColloqui();
+  renderDashboardCalendario();
 }
 // Panel To-do in dashboard: i to-do aperti (non "fatto"), prima le scadenze
 // più vicine — clic apre direttamente la modifica dalla sezione To-do
@@ -935,26 +941,31 @@ function renderDashboardTodo() {
     openTodoModal(DB.getTodos().find(t => t.id === div.dataset.id));
   }));
 }
-// Panel "Prossimi appuntamenti, colloqui e uscite" in dashboard: tutti e tre
-// entro 14 giorni da oggi (inclusi), ordinati per data/ora — clic apre la
-// pagina Nota (appuntamento/colloquio) o il modale di modifica (uscita). Usa
-// sempre l'anno reale corrente (come renderDashboardOggi), non il filtro
-// Anno in alto: "prossimi" ha senso solo guardando avanti da oggi.
-function renderDashboardApptColloqui() {
-  const oggi = todayISO();
-  const limite = toISO(addDays(new Date(oggi + 'T00:00:00'), 14));
-  const anni = new Set([annoFromData(oggi), annoFromData(limite)].filter(Boolean));
+// Widget Calendario in dashboard: mini-mese con un pallino per tipo di evento
+// (colloqui, appuntamenti, uscite — come la sezione Calendario, niente
+// Lezioni che riempirebbero ogni giorno di scuola) e sotto l'elenco dei
+// prossimi 14 giorni, oppure degli eventi del giorno cliccato. Legge sempre
+// gli anni scolastici reali toccati dall'intervallo, non il filtro Anno in
+// alto: il calendario guarda le date vere.
+const DASH_KIND_COLOR = { colloquio: 'var(--accent-blue)', appuntamento: 'var(--accent-amber)', uscita: 'var(--accent-green)' };
+const MINI_CAL_DOW = ['L', 'M', 'M', 'G', 'V', 'S', 'D'];
+let dashCalRef = null;      // primo giorno del mese mostrato (ISO)
+let dashCalSelected = null; // giorno cliccato (ISO) o null = prossimi 14 giorni
+
+function dashEventsBetween(da, a) {
+  const anni = new Set([annoFromData(da), annoFromData(a)].filter(Boolean));
+  const inRange = d => d >= da && d <= a;
   const items = [];
   anni.forEach(anno => {
-    DB.getAppuntamenti(anno).forEach(a => {
-      if (!(a.data >= oggi && a.data <= limite)) return;
+    DB.getAppuntamenti(anno).forEach(x => {
+      if (!inRange(x.data)) return;
       items.push({
-        kind: 'appuntamento', anno, id: a.id, data: a.data, ora: a.ora, oraFine: a.oraFine,
-        titolo: a.oggetto || TIPI_APPUNTAMENTO[a.tipo] || a.tipo, tipoLabel: TIPI_APPUNTAMENTO[a.tipo] || a.tipo,
+        kind: 'appuntamento', anno, id: x.id, data: x.data, ora: x.ora, oraFine: x.oraFine,
+        titolo: x.oggetto || TIPI_APPUNTAMENTO[x.tipo] || x.tipo, tipoLabel: TIPI_APPUNTAMENTO[x.tipo] || x.tipo,
       });
     });
     DB.getColloqui(anno).forEach(c => {
-      if (!(c.data >= oggi && c.data <= limite)) return;
+      if (!inRange(c.data) || !colloquioCompilato(c)) return;
       const s = state.students.find(x => x.id === c.studenteId);
       items.push({
         kind: 'colloquio', anno, id: c.id, data: c.data, ora: c.ora, oraFine: '',
@@ -962,28 +973,71 @@ function renderDashboardApptColloqui() {
       });
     });
     DB.getUscite(anno).forEach(u => {
-      if (!(u.data >= oggi && u.data <= limite)) return;
+      if (!inRange(u.data)) return;
       items.push({
         kind: 'uscita', anno, id: u.id, data: u.data, ora: u.oraInizio, oraFine: u.oraFine,
         titolo: u.titolo, tipoLabel: 'Uscita didattica',
       });
     });
   });
-  items.sort((a, b) => (a.data + (a.ora || '')).localeCompare(b.data + (b.ora || '')));
+  return items.sort((x, y) => (x.data + (x.ora || '')).localeCompare(y.data + (y.ora || '')));
+}
+
+function renderDashboardCalendario() {
+  const oggi = todayISO();
+  if (!dashCalRef) dashCalRef = oggi.slice(0, 8) + '01';
+  const first = new Date(dashCalRef + 'T00:00:00');
+  const month = first.getMonth();
+  const label = first.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' });
+  document.getElementById('dash-cal-label').textContent = label.charAt(0).toUpperCase() + label.slice(1);
+
+  const startOffset = (first.getDay() + 6) % 7;
+  const daysInMonth = new Date(first.getFullYear(), month + 1, 0).getDate();
+  const totalDays = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+  const gridStart = addDays(first, -startOffset);
+  const kindsByDay = {};
+  dashEventsBetween(toISO(gridStart), toISO(addDays(gridStart, totalDays - 1)))
+    .forEach(ev => (kindsByDay[ev.data] ||= new Set()).add(ev.kind));
+
+  let cells = '';
+  for (let i = 0; i < totalDays; i++) {
+    const d = addDays(gridStart, i);
+    const iso = toISO(d);
+    const kinds = [...(kindsByDay[iso] || [])];
+    const cls = [d.getMonth() !== month && 'outside', iso === oggi && 'today', iso === dashCalSelected && 'selected'].filter(Boolean).join(' ');
+    cells += `<button type="button" class="mini-cal-day ${cls}" data-date="${iso}">
+      ${d.getDate()}
+      <span class="mini-cal-dots">${kinds.map(k => `<i style="--dot-color:${DASH_KIND_COLOR[k]}"></i>`).join('')}</span>
+    </button>`;
+  }
+  const grid = document.getElementById('dash-cal-grid');
+  grid.innerHTML = MINI_CAL_DOW.map(d => `<div class="mini-cal-dow">${d}</div>`).join('') + cells;
+  grid.querySelectorAll('.mini-cal-day').forEach(btn => btn.addEventListener('click', () => {
+    dashCalSelected = dashCalSelected === btn.dataset.date ? null : btn.dataset.date;
+    renderDashboardCalendario();
+  }));
+
+  const items = dashCalSelected
+    ? dashEventsBetween(dashCalSelected, dashCalSelected)
+    : dashEventsBetween(oggi, toISO(addDays(new Date(oggi + 'T00:00:00'), 14)));
+  document.getElementById('dash-cal-list-title').textContent = dashCalSelected ? fmtDateIt(dashCalSelected) : 'Prossimi 14 giorni';
+  document.getElementById('dash-cal-list-reset').classList.toggle('hidden', !dashCalSelected);
   const el = document.getElementById('dash-appt-colloqui');
-  if (!items.length) { el.innerHTML = `<p class="stat-sub" style="padding:4px 0 8px">Nessun appuntamento, colloquio o uscita nei prossimi 14 giorni.</p>`; return; }
-  const kindColor = { colloquio: 'var(--accent-blue)', appuntamento: 'var(--accent-amber)', uscita: 'var(--accent-green)' };
+  if (!items.length) {
+    el.innerHTML = `<p class="stat-sub" style="padding:4px 0 8px">${dashCalSelected ? 'Nessun evento in questo giorno.' : 'Nessun appuntamento, colloquio o uscita nei prossimi 14 giorni.'}</p>`;
+    return;
+  }
   // A sinistra data - ora inizio - ora fine - titolo, a destra la chip tipo
   // (stessa struttura .dash-item-top di Lezioni/Compiti, riusata qui)
   el.innerHTML = items.map(it => {
     const oraLabel = [it.ora, it.oraFine].filter(Boolean).join('–');
-    const whenLabel = [it.data === oggi ? 'Oggi' : fmtData(it.data), oraLabel].filter(Boolean).join(' · ');
+    const whenLabel = dashCalSelected ? oraLabel : [it.data === oggi ? 'Oggi' : fmtData(it.data), oraLabel].filter(Boolean).join(' · ');
     return `
     <div class="dash-item" data-kind="${it.kind}" data-anno="${escHtml(it.anno)}" data-id="${it.id}">
       <div class="dash-item-top">
-        <span class="dash-item-ora">${escHtml(whenLabel)}</span>
+        ${whenLabel ? `<span class="dash-item-ora">${escHtml(whenLabel)}</span>` : ''}
         <span class="dash-item-titolo">${escHtml(it.titolo)}</span>
-        <span class="mat-chip" style="--mat-color:${kindColor[it.kind]}">${escHtml(it.tipoLabel)}</span>
+        <span class="mat-chip" style="--mat-color:${DASH_KIND_COLOR[it.kind]}">${escHtml(it.tipoLabel)}</span>
       </div>
     </div>`;
   }).join('');
@@ -992,6 +1046,18 @@ function renderDashboardApptColloqui() {
     else openItemNote(div.dataset.kind, div.dataset.anno, div.dataset.id);
   }));
 }
+function dashCalShiftMonth(delta) {
+  const d = new Date((dashCalRef || todayISO().slice(0, 8) + '01') + 'T00:00:00');
+  d.setMonth(d.getMonth() + delta);
+  dashCalRef = toISO(d);
+  renderDashboardCalendario();
+}
+document.getElementById('dash-cal-prev').addEventListener('click', () => dashCalShiftMonth(-1));
+document.getElementById('dash-cal-next').addEventListener('click', () => dashCalShiftMonth(1));
+document.getElementById('dash-cal-list-reset').addEventListener('click', () => { dashCalSelected = null; renderDashboardCalendario(); });
+
+// Colori dei tipi di voto nel grafico "Verifiche per classe"
+const TIPO_VOTO_COLORS = { scritto: '#5b9bff', orale: '#ffb400', pratico: '#2ecc71' };
 
 function renderDashboard() {
   dashInitGrid();
@@ -1016,6 +1082,29 @@ function renderDashboard() {
 
   renderDashboardOggi();
 
+  // Grafici per classe su un solo anno scolastico (la stessa etichetta "3A"
+  // indica coorti diverse in anni diversi, non vanno sommate): quello del
+  // filtro Anno, altrimenti l'anno in corso se ha dati, altrimenti l'ultimo
+  const years = allYears(list);
+  const refYear = state.year !== 'all' ? state.year
+    : (years.includes(DB.currentAnno()) ? DB.currentAnno() : years[years.length - 1]);
+  // classe → voti di quell'anno + verifiche (stessa identità della sezione
+  // Verifiche: classe + descrizione del voto), col tipo del primo voto trovato
+  const perClasse = {};
+  list.forEach(s => {
+    const y = s.anni?.[refYear];
+    if (!y?.classe) return;
+    const c = (perClasse[y.classe] ||= { voti: [], verifiche: new Map() });
+    Object.values(y.materie || {}).forEach(arr => arr.forEach(g => {
+      c.voti.push(g.voto);
+      if (g.desc && !c.verifiche.has(g.desc)) c.verifiche.set(g.desc, g.tipo || 'scritto');
+    }));
+  });
+  const classi = Object.keys(perClasse).sort((a, b) => a.localeCompare(b, 'it', { numeric: true }));
+  const suffix = refYear ? ` · ${refYear}` : '';
+  document.getElementById('dash-chart-media-title').textContent = 'Media per classe' + suffix;
+  document.getElementById('dash-chart-verifiche-title').textContent = 'Verifiche per classe' + suffix;
+
   const tc = themeColors();
   const base = {
     responsive: true, maintainAspectRatio: false,
@@ -1026,54 +1115,37 @@ function renderDashboard() {
     },
   };
 
-  // 1) Media per anno scolastico (linea)
-  const years = allYears(list);
-  const mediaByYear = years.map(y => {
-    const g = list.flatMap(s => (s.anni[y] ? gradesOf(s, y).map(x => x.voto) : []));
-    return avg(g);
-  });
-  drawChart('chart-years', {
-    type: 'line',
-    data: { labels: years, datasets: [{
-      data: mediaByYear, borderColor: tc.blue, backgroundColor: 'rgba(91,155,255,0.12)',
-      fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: tc.blue, borderWidth: 2,
-    }] },
-    options: { ...base, scales: { ...base.scales, y: { ...base.scales.y, suggestedMin: 4, suggestedMax: 10 } } },
-  });
-
-  // 2) Media per materia (ultimo anno selezionato o ultimo disponibile)
-  const refYear = state.year !== 'all' ? state.year : years[years.length - 1];
-  const subjMap = {};
-  list.forEach(s => {
-    const y = s.anni?.[refYear];
-    if (!y) return;
-    for (const [materia, arr] of Object.entries(y.materie || {})) {
-      (subjMap[materia] ||= []).push(...arr.map(g => g.voto));
-    }
-  });
-  const subjLabels = Object.keys(subjMap).sort();
-  const subjAvgs = subjLabels.map(m => avg(subjMap[m]));
-  drawChart('chart-subjects', {
+  const medie = classi.map(c => avg(perClasse[c].voti));
+  drawChart('chart-classi-media', {
     type: 'bar',
-    data: { labels: subjLabels, datasets: [{
-      data: subjAvgs,
-      backgroundColor: subjAvgs.map(v => v >= 6 ? tc.green : v >= 5 ? tc.amber : tc.red),
+    data: { labels: classi, datasets: [{
+      label: 'Media',
+      data: medie,
+      backgroundColor: medie.map(v => v == null ? tc.grid : v >= 6 ? tc.green : v >= 5 ? tc.amber : tc.red),
       borderRadius: 6,
     }] },
     options: { ...base, scales: { ...base.scales, y: { ...base.scales.y, suggestedMin: 0, suggestedMax: 10 } } },
   });
 
-  // 3) Distribuzione voti (istogramma 1..10)
-  const buckets = Array(11).fill(0); // indici 0..10, uso 1..10
-  allGrades.forEach(v => { buckets[Math.round(v)]++; });
-  drawChart('chart-dist', {
+  // Barre impilate per tipo (scritto/orale/pratico): quante verifiche e di che genere
+  const tipi = [...new Set(classi.flatMap(c => [...perClasse[c].verifiche.values()]))]
+    .sort((a, b) => Object.keys(TIPO_VOTO_COLORS).indexOf(a) - Object.keys(TIPO_VOTO_COLORS).indexOf(b));
+  drawChart('chart-classi-verifiche', {
     type: 'bar',
-    data: { labels: [...Array(10)].map((_, i) => i + 1), datasets: [{
-      data: buckets.slice(1, 11),
-      backgroundColor: [...Array(10)].map((_, i) => (i + 1) >= 6 ? tc.green : (i + 1) >= 5 ? tc.amber : tc.red),
-      borderRadius: 5,
-    }] },
-    options: base,
+    data: { labels: classi, datasets: tipi.map(t => ({
+      label: t.charAt(0).toUpperCase() + t.slice(1),
+      data: classi.map(c => [...perClasse[c].verifiche.values()].filter(x => x === t).length),
+      backgroundColor: TIPO_VOTO_COLORS[t] || colorOfName(t),
+      borderRadius: 4,
+    })) },
+    options: {
+      ...base,
+      plugins: { legend: { display: tipi.length > 1, position: 'bottom', labels: { color: tc.text, boxWidth: 10 } } },
+      scales: {
+        x: { ...base.scales.x, stacked: true },
+        y: { ...base.scales.y, stacked: true, beginAtZero: true, ticks: { ...base.scales.y.ticks, precision: 0 } },
+      },
+    },
   });
 }
 
@@ -1097,7 +1169,7 @@ function drawChart(id, config) {
 const DASH_COLS = 4;
 const DASH_ROW_H = 90;
 const DASH_GAP = 14;
-const DASH_LAYOUT_KEY = 'sm-dashboard-layout';
+const DASH_LAYOUT_KEY = 'sm-dashboard-layout-v2'; // v2: widget Calendario + grafici per classe
 
 let dashLayout = null;   // { [widgetId]: {x,y,w,h} }
 let dashDrag = null;     // interazione drag/resize in corso, null a riposo
@@ -1420,6 +1492,7 @@ function updateAlunniBulkBar() {
   const bar = document.getElementById('alunni-bulk-bar');
   const n = state.alunniSelected.size;
   bar.classList.toggle('hidden', n === 0);
+  syncBulkEdit(bar, n);
   document.getElementById('alunni-sel-count').textContent = `${n} alunn${n === 1 ? 'o' : 'i'} selezionat${n === 1 ? 'o' : 'i'}`;
 }
 document.getElementById('btn-alunni-select-all').addEventListener('click', () => {
@@ -1492,6 +1565,7 @@ function renderClassi() {
   const visibleKeys = new Set(records.map(r => r.key));
   [...state.classiSelected].forEach(k => { if (!visibleKeys.has(k)) state.classiSelected.delete(k); });
   updateClassiBulkBar();
+  document.getElementById('classi-count').textContent = `${records.length} class${records.length === 1 ? 'e' : 'i'}`;
   const allSel = records.length > 0 && records.every(r => state.classiSelected.has(r.key));
   const classiSelAllBtn = document.getElementById('btn-classi-select-all');
   classiSelAllBtn.classList.toggle('active', allSel);
@@ -1566,6 +1640,7 @@ function updateClassiBulkBar() {
   const bar = document.getElementById('classi-bulk-bar');
   const n = state.classiSelected.size;
   bar.classList.toggle('hidden', n === 0);
+  syncBulkEdit(bar, n);
   document.getElementById('classi-sel-count').textContent = `${n} classe${n === 1 ? '' : 'i'} selezionat${n === 1 ? 'a' : 'e'}`;
 }
 
@@ -2375,14 +2450,6 @@ function renderVoti() {
           </select>
         </td>
         <td class="col-hide-m"><input class="vf-input voti-field" data-f="desc" value="${escHtml(g.desc || '')}" title="${escHtml(g.commento || '')}"/></td>
-        <td class="vt-actions">
-          <button class="grade-edit" data-sid="${s.id}" data-anno="${escHtml(g.anno)}" data-mat="${escHtml(g.materia)}" data-gid="${g.id}" title="Modifica (tutti i campi)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-          </button>
-          <button class="grade-rm" data-sid="${s.id}" data-anno="${escHtml(g.anno)}" data-mat="${escHtml(g.materia)}" data-gid="${g.id}" title="Elimina voto">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
-        </td>
       </tr>`;
   };
   const votiThead = `
@@ -2393,7 +2460,7 @@ function renderVoti() {
       <th class="sortable" data-sort="materia">Materia${sortIcon('voti', 'materia')}</th>
       <th class="sortable" data-sort="voto">Voto${sortIcon('voti', 'voto')}</th>
       <th class="col-hide-m sortable" data-sort="tipo">Tipo${sortIcon('voti', 'tipo')}</th>
-      <th class="col-hide-m">Descrizione</th><th></th>`;
+      <th class="col-hide-m">Descrizione</th>`;
   let activeContainer;
   if (state.raggruppa.voti) {
     panel.classList.add('hidden');
@@ -2412,24 +2479,12 @@ function renderVoti() {
     const { sid, anno, mat, gid } = row.dataset;
     inlineUpdateGrade(sid, anno, mat, gid, inp.dataset.f, inp.value);
   }));
-  activeContainer.querySelectorAll('.grade-rm').forEach(btn => btn.addEventListener('click', async e => {
-    e.stopPropagation();
-    const s = state.students.find(x => x.id === btn.dataset.sid);
-    if (!s) return;
-    DB.removeGrade(s, btn.dataset.anno, btn.dataset.mat, btn.dataset.gid);
-    await DB.put(s);
-    renderAll();
-  }));
-  activeContainer.querySelectorAll('.grade-edit').forEach(btn => btn.addEventListener('click', e => {
-    e.stopPropagation();
-    openForm('grade', { editing: { sid: btn.dataset.sid, anno: btn.dataset.anno, materia: btn.dataset.mat, gradeId: btn.dataset.gid } });
-  }));
 
   // Click sul nome alunno → apre la scheda; click altrove nella riga (fuori
   // da campi inline/bottoni) → seleziona per le azioni di gruppo
   activeContainer.querySelectorAll('tr[data-key]').forEach(row => row.addEventListener('click', e => {
     if (e.target.closest('.vt-stu')) { openStudent(row.dataset.sid); return; }
-    if (e.target.closest('.voti-field') || e.target.closest('.grade-edit') || e.target.closest('.grade-rm')) return;
+    if (e.target.closest('.voti-field')) return;
     if (isMobileWidth()) { toggleRowExpand(row); return; }
     const key = row.dataset.key;
     if (state.votiSelected.has(key)) state.votiSelected.delete(key);
@@ -2447,6 +2502,7 @@ function updateVotiBulkBar() {
   const bar = document.getElementById('voti-bulk-bar');
   const n = state.votiSelected.size;
   bar.classList.toggle('hidden', n === 0);
+  syncBulkEdit(bar, n);
   document.getElementById('voti-sel-count').textContent = `${n} vot${n === 1 ? 'o' : 'i'} selezionat${n === 1 ? 'o' : 'i'}`;
 }
 document.getElementById('btn-voti-select-all').addEventListener('click', () => {
@@ -2511,6 +2567,7 @@ function renderVerifiche() {
   if (state.vfSelectedKey && !groups.some(g => g.key === state.vfSelectedKey)) state.vfSelectedKey = null;
 
   const sel = document.getElementById('vf-select');
+  document.getElementById('vf-count').textContent = `${groups.length} verific${groups.length === 1 ? 'a' : 'he'}`;
   sel.innerHTML = '<option value="">+ Nuova verifica</option>' +
     groups.map(g => `<option value="${escHtml(g.key)}" ${state.vfSelectedKey === g.key ? 'selected' : ''}>${escHtml(g.classe || '—')} - ${escHtml(g.desc)} (${g.rows.length} vot${g.rows.length === 1 ? 'o' : 'i'})</option>`).join('');
   sel.value = state.vfSelectedKey || '';
@@ -2845,7 +2902,7 @@ function renderVVPratico(target) {
         <thead><tr><th>Alunno</th><th>Voto</th><th>Commento</th></tr></thead>
         <tbody>${stu.map(s => `
           <tr data-sid="${s.id}">
-            <td>${vvAlunnoCell(s)}</td>
+            <td>${vvAlunnoCell(s, true)}</td>
             <td><input class="vf-input vv-voto-input vv-pratico-voto" data-sid="${s.id}" type="number" min="0" max="10" step="0.25" value="${vvState.pratico.voti[s.id] ?? ''}"/></td>
             <td><input class="vf-input vv-pratico-commento" data-sid="${s.id}" value="${escHtml(vvState.pratico.commenti[s.id] || '')}"/></td>
           </tr>`).join('')}</tbody>
@@ -3346,12 +3403,6 @@ function rubricaRowHtml(r) {
         <button class="grade-meet" data-pdf-rub="${r.id}" title="Scarica PDF">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         </button>
-        <button class="grade-edit" data-edit-rub="${r.id}" title="Modifica">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        </button>
-        <button class="grade-rm" data-rm-rub="${r.id}" title="Elimina">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
       </td>
     </tr>`;
 }
@@ -3359,6 +3410,7 @@ function updateRubricheBulkBar() {
   const bar = document.getElementById('rubriche-bulk-bar');
   const n = state.rubricheSelected.size;
   bar.classList.toggle('hidden', n === 0);
+  syncBulkEdit(bar, n);
   document.getElementById('rubriche-sel-count').textContent = `${n} rubrich${n === 1 ? 'a' : 'e'} selezionat${n === 1 ? 'a' : 'e'}`;
 }
 function renderRubricheElenco(unsortedList) {
@@ -3385,7 +3437,7 @@ function renderRubricheElenco(unsortedList) {
   </table>`;
 
   wrap.querySelectorAll('tbody tr').forEach(row => row.addEventListener('click', e => {
-    if (e.target.closest('[data-edit-rub]') || e.target.closest('[data-rm-rub]') || e.target.closest('[data-pdf-rub]')) return;
+    if (e.target.closest('[data-pdf-rub]')) return;
     const id = row.dataset.id;
     if (state.rubricheSelected.has(id)) state.rubricheSelected.delete(id);
     else state.rubricheSelected.add(id);
@@ -3743,17 +3795,13 @@ function besRowHtml(s) {
           <td>${escHtml(classe || '—')}</td>
           <td><span class="profilo-badge pb-${s.profilo.toLowerCase()}">${escHtml(s.profilo)}</span></td>
           <td>${tipi.map(c => `<span class="tipo-badge">${escHtml(tipoLabel(s.profilo, c))}</span>`).join(' ') || '<span class="stat-sub">—</span>'}</td>
-          <td class="vt-actions">
-            <button class="grade-edit" data-edit-bes="${s.id}" title="Modifica piano">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-            </button>
-          </td>
         </tr>`;
 }
 function updateBesBulkBar() {
   const bar = document.getElementById('bes-bulk-bar');
   const n = state.besSelected.size;
   bar.classList.toggle('hidden', n === 0);
+  syncBulkEdit(bar, n);
   document.getElementById('bes-sel-count').textContent = `${n} alunn${n === 1 ? 'o' : 'i'} selezionat${n === 1 ? 'o' : 'i'}`;
 }
 function renderBesElenco(list) {
@@ -3767,7 +3815,7 @@ function renderBesElenco(list) {
   const besSelAllBtn = document.getElementById('btn-bes-select-all');
   besSelAllBtn.classList.toggle('active', besAllSel);
   besSelAllBtn.title = besAllSel ? 'Deseleziona tutto' : 'Seleziona tutto';
-  const besThead = `<th></th><th>Alunno</th><th>Classe</th><th>Profilo</th><th>Classificazione</th><th></th>`;
+  const besThead = `<th></th><th>Alunno</th><th>Classe</th><th>Profilo</th><th>Classificazione</th>`;
   let activeContainer;
   if (state.raggruppa.bes) {
     panel.classList.add('hidden');
@@ -3780,7 +3828,6 @@ function renderBesElenco(list) {
     wrap.innerHTML = `<table class="voti-table"><thead><tr>${besThead}</tr></thead><tbody>${list.map(besRowHtml).join('')}</tbody></table>`;
     activeContainer = wrap;
   }
-  activeContainer.querySelectorAll('[data-edit-bes]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); openBesModal(list.find(s => s.id === b.dataset.editBes)); }));
   activeContainer.querySelectorAll('tbody tr').forEach(row => row.addEventListener('click', e => {
     if (e.target.closest('[data-edit-bes]')) return;
     const id = row.dataset.id;
@@ -3914,9 +3961,6 @@ const BM_TIPI = {
     icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><line x1="8" y1="3" x2="8" y2="21"/><line x1="11" y1="8" x2="17" y2="8"/><line x1="11" y1="12" x2="17" y2="12"/><line x1="11" y1="16" x2="17" y2="16"/></svg>',
   },
 };
-const BM_RM_ICON = '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
-const BM_PLUS_ICON = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
-const BM_MINUS_ICON = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>';
 
 function bmCounts(s) {
   const arr = s.bonusMalus || [];
@@ -3930,24 +3974,59 @@ function bmCounts(s) {
 function renderBonusMalus() {
   const list = filtered().sort((a, b) => `${a.cognome} ${a.nome}`.localeCompare(`${b.cognome} ${b.nome}`));
   document.getElementById('bm-count').textContent = `${list.length} alunn${list.length === 1 ? 'o' : 'i'}`;
+  const visibleIds = new Set(list.map(s => s.id));
+  [...state.bmSelected].forEach(id => { if (!visibleIds.has(id)) state.bmSelected.delete(id); });
+  updateBmBulkBar(list);
   const wrap = document.getElementById('bm-wrap');
   const empty = document.getElementById('bm-empty');
+  wrap.closest('.table-panel').classList.toggle('hidden', !list.length);
   if (!list.length) { wrap.innerHTML = ''; empty.classList.remove('hidden'); return; }
   empty.classList.add('hidden');
   wrap.innerHTML = `
   <table class="voti-table bm-table">
-    <thead><tr><th>Alunno</th><th>Stelline</th><th>Teschietti</th><th>Quadernetti</th></tr></thead>
+    <thead><tr><th></th><th>Alunno</th><th>Stelline</th><th>Teschietti</th><th>Quadernetti</th></tr></thead>
     <tbody>${list.map(bmRowHtml).join('')}</tbody>
   </table>`;
   wireBonusMalusRows();
 }
+function updateBmBulkBar(list) {
+  const n = state.bmSelected.size;
+  document.getElementById('bm-bulk-bar').classList.toggle('hidden', n === 0);
+  document.getElementById('bm-sel-count').textContent = `${n} alunn${n === 1 ? 'o' : 'i'} selezionat${n === 1 ? 'o' : 'i'}`;
+  const ids = (list || filtered()).map(s => s.id);
+  const allSel = ids.length > 0 && ids.every(id => state.bmSelected.has(id));
+  const selAllBtn = document.getElementById('btn-bm-select-all');
+  selAllBtn.classList.toggle('active', allSel);
+  selAllBtn.title = allSel ? 'Deseleziona tutto' : 'Seleziona tutto';
+}
+// Pulsanti "aggiungi" della barra di gruppo: l'icona del tipo stessa, colorata
+document.getElementById('bm-bulk-add').outerHTML = ['stella', 'teschio', 'quaderno'].map(t =>
+  `<button class="btn-icon bm-bulk-add-btn" data-bulk-add="${t}" style="--bm-color:${BM_TIPI[t].color}" title="Aggiungi ${BM_TIPI[t].label.toLowerCase()} ai selezionati">${BM_TIPI[t].icon}</button>`).join('');
+document.querySelectorAll('#bm-bulk-bar [data-bulk-add]').forEach(btn => btn.addEventListener('click', async () => {
+  const studenti = state.students.filter(s => state.bmSelected.has(s.id));
+  if (!studenti.length) return;
+  btn.disabled = true;
+  try {
+    studenti.forEach(s => DB.addBonusMalus(s, btn.dataset.bulkAdd));
+    await DB.putMany(studenti);
+    studenti.forEach(s => bmRefreshRow(s.id));
+  } catch (err) { alert('Errore durante il salvataggio: ' + err.message); }
+  finally { btn.disabled = false; }
+}));
+document.getElementById('btn-bm-select-all').addEventListener('click', () => {
+  const ids = filtered().map(s => s.id);
+  const allSel = ids.length > 0 && ids.every(id => state.bmSelected.has(id));
+  if (allSel) ids.forEach(id => state.bmSelected.delete(id));
+  else ids.forEach(id => state.bmSelected.add(id));
+  renderBonusMalus();
+});
 
-// Niente colonna "Azioni" a sé: i pulsantini +/- stanno in fondo a ciascuna
-// colonna (compatti, non più di 8 elementi previsti per tipo). I pulsanti
-// "aggiungi" a icona intera sono nella Scheda alunno (vedi renderAdBmSummary).
+// Riga selezionabile come nelle altre tabelle (le aggiunte si fanno dalla
+// barra di gruppo); in cella solo le icone, una per elemento
 function bmRowHtml(s) {
   return `
-  <tr data-sid="${s.id}">
+  <tr class="row-selectable ${state.bmSelected.has(s.id) ? 'selected' : ''}" data-sid="${s.id}">
+    <td class="row-drag" title="Seleziona"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="8" cy="6" r="1.6"/><circle cx="8" cy="12" r="1.6"/><circle cx="8" cy="18" r="1.6"/><circle cx="16" cy="6" r="1.6"/><circle cx="16" cy="12" r="1.6"/><circle cx="16" cy="18" r="1.6"/></svg></td>
     <td>${escHtml(s.cognome)} ${escHtml(s.nome)}</td>
     <td><div class="bm-icons-cell">${bmIconsCellHtml(s, 'stella')}</div></td>
     <td><div class="bm-icons-cell">${bmIconsCellHtml(s, 'teschio')}</div></td>
@@ -3955,23 +4034,14 @@ function bmRowHtml(s) {
   </tr>`;
 }
 
-// Un'icona per elemento (non un numero): cliccandola compare accanto un
-// piccolo popover inline con data e "x" per rimuovere solo quell'elemento —
-// niente riga espansa, resta tutto dentro la stessa cella. Le icone stanno
-// in una riga che va a capo (bm-icons-row); i pulsantini +/- sono in una
-// riga separata (bm-icons-actions), spinta in fondo alla cella con
-// margin-top:auto — così restano sempre allineati in basso, non subito
-// dopo l'ultima icona quando le icone vanno a capo su più righe.
+// Un'icona per elemento (non un numero): cliccandola la si elimina subito
+// (la data resta nel tooltip).
 function bmIconsCellHtml(s, tipo) {
   const arr = (s.bonusMalus || []).filter(b => b.tipo === tipo).sort((a, b) => (a.data || '').localeCompare(b.data || ''));
   const t = BM_TIPI[tipo];
-  const icons = arr.map(b => `<span class="bm-icon-item" style="--bm-color:${t.color}" data-id="${b.id}" data-sid="${s.id}" data-date="${escHtml(b.data)}" title="${escHtml(fmtData(b.data))}">${t.icon}</span>`).join('');
-  return `
-    <div class="bm-icons-row">${icons}</div>
-    <div class="bm-icons-actions">
-      <button class="bm-mini-btn" data-add="${tipo}" data-sid="${s.id}" title="Aggiungi ${t.label.toLowerCase()}">${BM_PLUS_ICON}</button>
-      <button class="bm-mini-btn" data-quickrm="${tipo}" data-sid="${s.id}" title="Rimuovi l'ultima aggiunta" ${arr.length ? '' : 'disabled'}>${BM_MINUS_ICON}</button>
-    </div>`;
+  if (!arr.length) return '<span class="stat-sub">—</span>';
+  const icons = arr.map(b => `<span class="bm-icon-item" style="--bm-color:${t.color}" data-id="${b.id}" data-sid="${s.id}" data-date="${escHtml(b.data)}" title="${escHtml(fmtData(b.data))} — clic per eliminare">${t.icon}</span>`).join('');
+  return `<div class="bm-icons-row">${icons}</div>`;
 }
 
 // Aggiorna in-place le tre celle a icone di un solo alunno dopo
@@ -3988,11 +4058,6 @@ function bmRefreshRow(sid) {
   if (state.openId === sid) renderAdBmSummary(s); // riepilogo nell'header Scheda alunno, se è l'alunno aperto
 }
 
-function bmClosePopover() {
-  document.querySelectorAll('.bm-icon-popover').forEach(p => p.remove());
-  document.querySelectorAll('.bm-icon-item.active').forEach(el => el.classList.remove('active'));
-}
-
 // Delegazione sull'intero #bm-wrap: la tabella viene ricreata ad ogni
 // render (innerHTML), ma il contenitore resta lo stesso, quindi il
 // listener va agganciato una volta sola (altrimenti si accumulerebbe ad
@@ -4002,53 +4067,23 @@ function wireBonusMalusRows() {
   if (wrap.dataset.bmWired) return;
   wrap.dataset.bmWired = '1';
   wrap.addEventListener('click', async e => {
-    const rm = e.target.closest('[data-rm]');
-    if (rm) {
-      bmClosePopover();
-      const s = state.students.find(x => x.id === rm.dataset.sid);
-      if (!s) return;
-      DB.removeBonusMalus(s, rm.dataset.rm);
-      await DB.put(s);
-      bmRefreshRow(s.id);
-      return;
-    }
-    const quickrm = e.target.closest('[data-quickrm]');
-    if (quickrm) {
-      const s = state.students.find(x => x.id === quickrm.dataset.sid);
-      if (!s) return;
-      const arr = (s.bonusMalus || []).filter(b => b.tipo === quickrm.dataset.quickrm).sort((a, b) => (a.data || '').localeCompare(b.data || ''));
-      const last = arr[arr.length - 1];
-      if (!last) return;
-      bmClosePopover();
-      DB.removeBonusMalus(s, last.id);
-      await DB.put(s);
-      bmRefreshRow(s.id);
-      return;
-    }
+    // Clic su un'icona: la elimina subito (nessuna conferma né popover)
     const item = e.target.closest('.bm-icon-item');
     if (item) {
-      const wasActive = item.classList.contains('active');
-      bmClosePopover();
-      if (wasActive) return; // era già aperto: il click lo ha solo richiuso
-      item.classList.add('active');
-      const pop = document.createElement('span');
-      pop.className = 'bm-icon-popover';
-      pop.innerHTML = `${escHtml(fmtData(item.dataset.date))}<span class="bm-chip-rm" data-rm="${item.dataset.id}" data-sid="${item.dataset.sid}" title="Rimuovi">${BM_RM_ICON}</span>`;
-      item.after(pop);
+      const s = state.students.find(x => x.id === item.dataset.sid);
+      if (!s) return;
+      DB.removeBonusMalus(s, item.dataset.id);
+      try { await DB.put(s); } catch (err) { alert('Errore durante l\'eliminazione: ' + err.message); }
+      bmRefreshRow(s.id);
       return;
     }
-    const add = e.target.closest('[data-add]');
-    if (add) {
-      const s = state.students.find(x => x.id === add.dataset.sid);
-      if (!s) return;
-      bmClosePopover();
-      DB.addBonusMalus(s, add.dataset.add);
-      await DB.put(s);
-      bmRefreshRow(s.id);
-    }
-  });
-  document.addEventListener('click', e => {
-    if (!e.target.closest('.bm-icon-item') && !e.target.closest('.bm-icon-popover')) bmClosePopover();
+    const row = e.target.closest('tr[data-sid]');
+    if (!row) return;
+    const sid = row.dataset.sid;
+    if (state.bmSelected.has(sid)) state.bmSelected.delete(sid);
+    else state.bmSelected.add(sid);
+    row.classList.toggle('selected');
+    updateBmBulkBar();
   });
 }
 
@@ -4089,16 +4124,15 @@ function wireAdBmSummary() {
   });
 }
 
-// Chip "ogni 4" da affiancare al nome nel punteggio esercizi di Verifiche:
-// una chip per tipo con almeno 4 elementi, col numero di gruppi da 4 (non
-// il totale grezzo, altrimenti perderebbe il senso di "traguardo ogni 4")
+// Accanto al nome in Verifiche: quante stelline e quanti quadernetti ha
+// l'alunno (icona + numero, solo i tipi con almeno un elemento) — utile
+// per tenerne conto mentre si valuta
 function bmScoreChipsHtml(s) {
   const c = bmCounts(s);
-  return ['stella', 'teschio', 'quaderno'].map(t => {
-    const n = Math.floor(c[t] / 4);
-    if (!n) return '';
+  return ['stella', 'quaderno'].map(t => {
+    if (!c[t]) return '';
     const t2 = BM_TIPI[t];
-    return `<span class="bm-score-chip" style="--bm-color:${t2.color}" title="${n * 4} ${t2.plural}">${t2.icon}</span>`;
+    return `<span class="bm-score-chip" style="--bm-color:${t2.color}" title="${c[t]} ${c[t] === 1 ? t2.label.toLowerCase() : t2.plural}">${t2.icon}${c[t]}</span>`;
   }).join('');
 }
 
@@ -4182,6 +4216,10 @@ document.getElementById('coll-slot-add').addEventListener('click', async () => {
   } catch (err) { alert('Errore durante il salvataggio: ' + err.message); }
 });
 
+// Un colloquio è "compilato" quando ha un alunno (o almeno i partecipanti):
+// gli slot di ricevimento generati in blocco nascono vuoti e non vanno
+// mostrati in Calendario/dashboard finché nessuno li prenota
+function colloquioCompilato(c) { return !!(c.studenteId || (c.partecipanti || '').trim()); }
 function colloquiRows() {
   const anni = state.year !== 'all' ? [state.year] : [...new Set([...allYears(), ...DB.getColloquiAnni()])];
   const rows = [];
@@ -4211,12 +4249,6 @@ function renderColloqui() {
               ${c.meetLink ? `<a class="grade-meet" href="${escHtml(c.meetLink)}" target="_blank" rel="noopener" title="Apri link Meet" onclick="event.stopPropagation()">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10l5-3v10l-5-3"/><rect x="1" y="6" width="14" height="12" rx="2"/></svg>
               </a>` : ''}
-              <button class="grade-edit" data-anno="${escHtml(anno)}" data-id="${c.id}" title="Modifica">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-              </button>
-              <button class="grade-rm" data-anno="${escHtml(anno)}" data-id="${c.id}" title="Elimina colloquio">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
             </td>
           </tr>`;
   };
@@ -4251,20 +4283,9 @@ function renderColloqui() {
     colloquiWrap.innerHTML = `<table class="voti-table"><thead><tr>${colloquiThead}</tr></thead><tbody>${rows.map(colloquioRowHtml).join('')}</tbody></table>`;
     activeContainer = colloquiWrap;
   }
-  activeContainer.querySelectorAll('.grade-edit').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); openColloquio(btn.dataset.anno, btn.dataset.id); }));
   activeContainer.querySelectorAll('.name-open').forEach(td => td.addEventListener('click', e => { e.stopPropagation(); openItemNote('colloquio', td.dataset.anno, td.dataset.id); }));
-  activeContainer.querySelectorAll('.grade-rm').forEach(btn => btn.addEventListener('click', async e => {
-    e.stopPropagation();
-    if (!confirm('Eliminare questo colloquio?')) return;
-    try {
-      const prevGcalEventId = DB.getColloqui(btn.dataset.anno).find(x => x.id === btn.dataset.id)?.gcalEventId;
-      await DB.removeColloquio(btn.dataset.anno, btn.dataset.id);
-      renderAll();
-      if (prevGcalEventId) GCal.deleteEvent(prevGcalEventId);
-    } catch (err) { alert('Errore durante l\'eliminazione: ' + err.message); }
-  }));
   activeContainer.querySelectorAll('tr[data-key]').forEach(row => row.addEventListener('click', e => {
-    if (e.target.closest('.grade-edit') || e.target.closest('.grade-rm') || e.target.closest('.grade-meet') || e.target.closest('.name-open')) return;
+    if (e.target.closest('.grade-meet') || e.target.closest('.name-open')) return;
     const key = row.dataset.key;
     if (state.colloquiSelected.has(key)) state.colloquiSelected.delete(key);
     else state.colloquiSelected.add(key);
@@ -4280,6 +4301,7 @@ function updateColloquiBulkBar() {
   const bar = document.getElementById('colloqui-bulk-bar');
   const n = state.colloquiSelected.size;
   bar.classList.toggle('hidden', n === 0);
+  syncBulkEdit(bar, n);
   document.getElementById('colloqui-sel-count').textContent = `${n} colloqui${n === 1 ? 'o' : ''} selezionat${n === 1 ? 'o' : 'i'}`;
 }
 document.getElementById('btn-colloqui-elimina-bulk').addEventListener('click', async () => {
@@ -4429,13 +4451,15 @@ function openColloquio(anno, id) {
   document.getElementById('colloquio-delete').classList.remove('hidden');
   document.getElementById('colloquio-overlay').classList.remove('hidden');
 }
-document.getElementById('btn-add-colloquio').addEventListener('click', () => {
+function openColloquioNew(defaults = {}) {
   colloquioCtx = null;
   document.getElementById('colloquio-title').textContent = 'Nuovo colloquio';
-  document.getElementById('colloquio-body').innerHTML = colloquioFormBody({ data: todayISO() });
+  document.getElementById('colloquio-body').innerHTML = newEventKindPickerHtml('colloquio') + colloquioFormBody({ data: defaults.data || todayISO() });
+  wireNewEventKindPicker('colloquio');
   document.getElementById('colloquio-delete').classList.add('hidden');
   document.getElementById('colloquio-overlay').classList.remove('hidden');
-});
+}
+document.getElementById('btn-add-colloquio').addEventListener('click', () => openColloquioNew());
 function closeColloquio() { document.getElementById('colloquio-overlay').classList.add('hidden'); colloquioCtx = null; }
 document.getElementById('colloquio-close').addEventListener('click', closeColloquio);
 document.getElementById('colloquio-cancel').addEventListener('click', closeColloquio);
@@ -4521,21 +4545,15 @@ function renderAppuntamenti() {
             <td class="row-drag" title="Seleziona"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="8" cy="6" r="1.6"/><circle cx="8" cy="12" r="1.6"/><circle cx="8" cy="18" r="1.6"/><circle cx="16" cy="6" r="1.6"/><circle cx="16" cy="12" r="1.6"/><circle cx="16" cy="18" r="1.6"/></svg></td>
             <td class="vt-mono">${fmtData(a.data)}</td>
             <td class="vt-mono">${escHtml(ora)}</td>
-            <td>${escHtml(TIPI_APPUNTAMENTO[a.tipo] || a.tipo)}</td>
+            <td><span class="tag-pill" style="--pill-color:${TIPI_APPUNTAMENTO_COLORS[a.tipo] || colorOfName(a.tipo)}">${escHtml(TIPI_APPUNTAMENTO[a.tipo] || a.tipo)}</span></td>
             <td>${a.modalita === 'online' ? 'Online' : 'In presenza'}</td>
-            <td>${escHtml(a.classe || '—')}</td>
+            <td>${a.classe ? `<span class="classe-chip" style="--cls-color:${colorOfClasse(a.classe)}">${escHtml(a.classe)}</span>` : '<span class="stat-sub">—</span>'}</td>
             <td class="col-hide-m">${escHtml(a.luogo || '—')}</td>
             <td class="name-open" data-anno="${escHtml(anno)}" data-id="${a.id}" title="${escHtml([oggetto, note].filter(Boolean).join(' — '))}">${escHtml(oggettoShown)}</td>
             <td class="vt-actions">
               ${a.meetLink ? `<a class="grade-meet" href="${escHtml(a.meetLink)}" target="_blank" rel="noopener" title="Apri link Meet" onclick="event.stopPropagation()">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10l5-3v10l-5-3"/><rect x="1" y="6" width="14" height="12" rx="2"/></svg>
               </a>` : ''}
-              <button class="grade-edit" data-anno="${escHtml(anno)}" data-id="${a.id}" title="Modifica">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-              </button>
-              <button class="grade-rm" data-anno="${escHtml(anno)}" data-id="${a.id}" title="Elimina appuntamento">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
             </td>
           </tr>`;
   };
@@ -4552,20 +4570,9 @@ function renderAppuntamenti() {
   if (!rows.length) { wrap.innerHTML = ''; panel.classList.add('hidden'); return; }
   panel.classList.remove('hidden');
   wrap.innerHTML = `<table class="voti-table"><thead><tr>${thead}</tr></thead><tbody>${rows.map(appuntamentoRowHtml).join('')}</tbody></table>`;
-  wrap.querySelectorAll('.grade-edit').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); openAppuntamento(btn.dataset.anno, btn.dataset.id); }));
   wrap.querySelectorAll('.name-open').forEach(td => td.addEventListener('click', e => { e.stopPropagation(); openItemNote('appuntamento', td.dataset.anno, td.dataset.id); }));
-  wrap.querySelectorAll('.grade-rm').forEach(btn => btn.addEventListener('click', async e => {
-    e.stopPropagation();
-    if (!confirm('Eliminare questo appuntamento?')) return;
-    try {
-      const prevGcalEventId = DB.getAppuntamenti(btn.dataset.anno).find(x => x.id === btn.dataset.id)?.gcalEventId;
-      await DB.removeAppuntamento(btn.dataset.anno, btn.dataset.id);
-      renderAll();
-      if (prevGcalEventId) GCal.deleteEvent(prevGcalEventId);
-    } catch (err) { alert('Errore durante l\'eliminazione: ' + err.message); }
-  }));
   wrap.querySelectorAll('tr[data-key]').forEach(row => row.addEventListener('click', e => {
-    if (e.target.closest('.grade-edit') || e.target.closest('.grade-rm') || e.target.closest('.grade-meet') || e.target.closest('.name-open')) return;
+    if (e.target.closest('.grade-meet') || e.target.closest('.name-open')) return;
     const key = row.dataset.key;
     if (state.appuntamentiSelected.has(key)) state.appuntamentiSelected.delete(key);
     else state.appuntamentiSelected.add(key);
@@ -4580,6 +4587,7 @@ function updateAppuntamentiBulkBar() {
   const bar = document.getElementById('appuntamenti-bulk-bar');
   const n = state.appuntamentiSelected.size;
   bar.classList.toggle('hidden', n === 0);
+  syncBulkEdit(bar, n);
   document.getElementById('appuntamenti-sel-count').textContent = `${n} appuntament${n === 1 ? 'o' : 'i'} selezionat${n === 1 ? 'o' : 'i'}`;
 }
 document.getElementById('btn-appuntamenti-elimina-bulk').addEventListener('click', async () => {
@@ -4644,13 +4652,16 @@ function openAppuntamento(anno, id) {
   document.getElementById('appuntamento-delete').classList.remove('hidden');
   document.getElementById('appuntamento-overlay').classList.remove('hidden');
 }
-document.getElementById('btn-add-appuntamento').addEventListener('click', () => {
+function openAppuntamentoNew(defaults = {}) {
   appuntamentoCtx = null;
   document.getElementById('appuntamento-title').textContent = 'Nuovo appuntamento';
-  document.getElementById('appuntamento-body').innerHTML = appuntamentoFormBody({ data: todayISO(), tipo: 'incontro', modalita: 'presenza' });
+  document.getElementById('appuntamento-body').innerHTML = newEventKindPickerHtml('appuntamento') +
+    appuntamentoFormBody({ data: defaults.data || todayISO(), classe: defaults.classe || '', tipo: 'incontro', modalita: 'presenza' });
+  wireNewEventKindPicker('appuntamento');
   document.getElementById('appuntamento-delete').classList.add('hidden');
   document.getElementById('appuntamento-overlay').classList.remove('hidden');
-});
+}
+document.getElementById('btn-add-appuntamento').addEventListener('click', () => openAppuntamentoNew());
 function closeAppuntamento() { document.getElementById('appuntamento-overlay').classList.add('hidden'); appuntamentoCtx = null; }
 document.getElementById('appuntamento-close').addEventListener('click', closeAppuntamento);
 document.getElementById('appuntamento-cancel').addEventListener('click', closeAppuntamento);
@@ -4740,19 +4751,11 @@ function renderUscite() {
             <td>${escHtml((u.classi || []).join(', ') || '—')}</td>
             <td class="col-hide-m">${escHtml(u.luogo || '—')}</td>
             <td title="${escHtml([u.titolo, u.note].filter(Boolean).join(' — '))}">${escHtml(u.titolo || '—')}</td>
-            <td class="vt-actions">
-              <button class="grade-edit" data-anno="${escHtml(anno)}" data-id="${u.id}" title="Modifica">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-              </button>
-              <button class="grade-rm" data-anno="${escHtml(anno)}" data-id="${u.id}" title="Elimina uscita">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </td>
           </tr>`;
   };
   const wrap = document.getElementById('uscite-wrap');
   const panel = wrap.closest('.table-panel');
-  const thead = `<th></th><th>Giorno</th><th>Ora</th><th>Classe</th><th class="col-hide-m">Luogo</th><th>Titolo</th><th></th>`;
+  const thead = `<th></th><th>Giorno</th><th>Ora</th><th>Classe</th><th class="col-hide-m">Luogo</th><th>Titolo</th>`;
   const visibleKeys = new Set(rows.map(({ anno, u }) => anno + '|' + u.id));
   [...state.usciteSelected].forEach(k => { if (!visibleKeys.has(k)) state.usciteSelected.delete(k); });
   updateUsciteBulkBar();
@@ -4763,15 +4766,7 @@ function renderUscite() {
   if (!rows.length) { wrap.innerHTML = ''; panel.classList.add('hidden'); return; }
   panel.classList.remove('hidden');
   wrap.innerHTML = `<table class="voti-table"><thead><tr>${thead}</tr></thead><tbody>${rows.map(uscitaRowHtml).join('')}</tbody></table>`;
-  wrap.querySelectorAll('.grade-edit').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); openUscita(btn.dataset.anno, btn.dataset.id); }));
-  wrap.querySelectorAll('.grade-rm').forEach(btn => btn.addEventListener('click', async e => {
-    e.stopPropagation();
-    if (!confirm('Eliminare questa uscita didattica?')) return;
-    try { await DB.removeUscita(btn.dataset.anno, btn.dataset.id); renderAll(); }
-    catch (err) { alert('Errore durante l\'eliminazione: ' + err.message); }
-  }));
   wrap.querySelectorAll('tr[data-key]').forEach(row => row.addEventListener('click', e => {
-    if (e.target.closest('.grade-edit') || e.target.closest('.grade-rm')) return;
     const key = row.dataset.key;
     if (state.usciteSelected.has(key)) state.usciteSelected.delete(key);
     else state.usciteSelected.add(key);
@@ -4786,6 +4781,7 @@ function updateUsciteBulkBar() {
   const bar = document.getElementById('uscite-bulk-bar');
   const n = state.usciteSelected.size;
   bar.classList.toggle('hidden', n === 0);
+  syncBulkEdit(bar, n);
   document.getElementById('uscite-sel-count').textContent = `${n} uscit${n === 1 ? 'a' : 'e'} selezionat${n === 1 ? 'a' : 'e'}`;
 }
 document.getElementById('btn-uscite-elimina-bulk').addEventListener('click', async () => {
@@ -4847,14 +4843,19 @@ function openUscita(anno, id) {
   document.getElementById('uscita-delete').classList.remove('hidden');
   document.getElementById('uscita-overlay').classList.remove('hidden');
 }
-document.getElementById('btn-add-uscita').addEventListener('click', () => {
+function openUscitaNew(defaults = {}) {
   uscitaCtx = null;
+  // La classe portata da un altro modale vale solo se compare fra le chip
+  // selezionabili, altrimenti resterebbe selezionata ma invisibile
+  const classi = defaults.classe && allClasses(state.students, state.year, 'all').includes(defaults.classe) ? [defaults.classe] : [];
   document.getElementById('uscita-title').textContent = 'Nuova uscita didattica';
-  document.getElementById('uscita-body').innerHTML = uscitaFormBody({ data: todayISO() });
+  document.getElementById('uscita-body').innerHTML = newEventKindPickerHtml('uscita') + uscitaFormBody({ data: defaults.data || todayISO(), classi });
   wireUsClassiPicker();
+  wireNewEventKindPicker('uscita');
   document.getElementById('uscita-delete').classList.add('hidden');
   document.getElementById('uscita-overlay').classList.remove('hidden');
-});
+}
+document.getElementById('btn-add-uscita').addEventListener('click', () => openUscitaNew());
 function closeUscita() { document.getElementById('uscita-overlay').classList.add('hidden'); uscitaCtx = null; }
 document.getElementById('uscita-close').addEventListener('click', closeUscita);
 document.getElementById('uscita-cancel').addEventListener('click', closeUscita);
@@ -5045,6 +5046,7 @@ function updateLezioniBulkBar() {
   const bar = document.getElementById('lezioni-bulk-bar');
   const n = state.lezioniSelected.size;
   bar.classList.toggle('hidden', n === 0);
+  syncBulkEdit(bar, n);
   document.getElementById('lezioni-sel-count').textContent = `${n} lezion${n === 1 ? 'e' : 'i'} selezionat${n === 1 ? 'a' : 'e'}`;
 }
 
@@ -5092,14 +5094,6 @@ function renderLezioniElenco(rows) {
         <td><input class="vf-input lez-field" data-f="classe" list="lez-elenco-classi" value="${escHtml(l.classe || '')}"/></td>
         <td><input class="vf-input lez-field" data-f="materia" list="lez-elenco-materie" value="${escHtml(l.materia || '')}"/></td>
         <td class="col-hide-m"><input class="vf-input lez-field" data-f="argomento" value="${escHtml(l.argomento || '')}"/></td>
-        <td class="vt-actions">
-          <button class="grade-edit" data-anno="${escHtml(anno)}" data-id="${l.id}" title="Modifica (tutti i campi)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-          </button>
-          <button class="grade-rm" data-anno="${escHtml(anno)}" data-id="${l.id}" title="Elimina lezione">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
-        </td>
       </tr>`;
   };
   const lezioniThead = `
@@ -5109,8 +5103,7 @@ function renderLezioniElenco(rows) {
       <th class="col-hide-m sortable" data-sort="ora">Ora${sortIcon('lezioni', 'ora')}</th>
       <th class="sortable" data-sort="classe">Classe${sortIcon('lezioni', 'classe')}</th>
       <th class="sortable" data-sort="materia">Materia${sortIcon('lezioni', 'materia')}</th>
-      <th class="col-hide-m sortable" data-sort="argomento">Argomento${sortIcon('lezioni', 'argomento')}</th>
-      <th></th>`;
+      <th class="col-hide-m sortable" data-sort="argomento">Argomento${sortIcon('lezioni', 'argomento')}</th>`;
   const groupField = state.raggruppa.lezioni;
   const groupCfg = groupField ? LEZ_GROUP_FIELDS[groupField] : null;
   const datalistsHtml = `<datalist id="lez-elenco-classi">${classiList.map(c => `<option value="${escHtml(c)}">`).join('')}</datalist>
@@ -5133,16 +5126,10 @@ function renderLezioniElenco(rows) {
     const { anno, id } = inp.closest('tr').dataset;
     inlineUpdateLezione(anno, id, { [inp.dataset.f]: inp.value });
   }));
-  activeContainer.querySelectorAll('.grade-edit').forEach(btn => btn.addEventListener('click', () => openLezione(btn.dataset.anno, btn.dataset.id)));
-  activeContainer.querySelectorAll('.grade-rm').forEach(btn => btn.addEventListener('click', async () => {
-    if (!confirm('Eliminare questa lezione?')) return;
-    await DB.removeLezione(btn.dataset.anno, btn.dataset.id);
-    renderAll();
-  }));
   // Niente più checkbox: click sulla riga (fuori da campi/bottoni) seleziona,
   // come Alunni/Classi/Voti. In mobile espande invece di selezionare.
   activeContainer.querySelectorAll('.lez-row').forEach(row => row.addEventListener('click', e => {
-    if (e.target.closest('.lez-field') || e.target.closest('.grade-edit') || e.target.closest('.grade-rm')) return;
+    if (e.target.closest('.lez-field')) return;
     if (isMobileWidth()) { toggleRowExpand(row); return; }
     const key = row.dataset.key;
     if (state.lezioniSelected.has(key)) state.lezioniSelected.delete(key);
@@ -5419,7 +5406,7 @@ document.getElementById('lez-month-today').addEventListener('click', () => {
 // (indipendente da stato.calRefDate: solo Calendario la usa)
 function calEventsFor(sources) {
   const rows = [];
-  if (sources.colloqui) colloquiRows().forEach(({ anno, c }) => {
+  if (sources.colloqui) colloquiRows().filter(({ c }) => colloquioCompilato(c)).forEach(({ anno, c }) => {
     const s = state.students.find(x => x.id === c.studenteId);
     rows.push({
       tipo: 'colloquio', anno, id: c.id, data: c.data, ora: c.ora || '', sortOra: c.ora || '',
@@ -5780,7 +5767,7 @@ function openLezione(anno, id) {
   document.getElementById('lezione-overlay').classList.remove('hidden');
   wireLezioneFormEvents(anno);
 }
-function openLezioneNew(defaultData, defaultOra) {
+function openLezioneNew(defaultData, defaultOra, defaultClasse) {
   lezioneCtx = null;
   const data = defaultData || todayISO();
   const anno = annoFromData(data);
@@ -5788,14 +5775,50 @@ function openLezioneNew(defaultData, defaultOra) {
   const config = giorno ? orarioConfigForDate(anno, data) : null;
   const slot = config?.slots.find(sl => sl.giorno === giorno && sl.ora === +defaultOra);
   document.getElementById('lezione-title').textContent = 'Nuova lezione';
-  document.getElementById('lezione-body').innerHTML = lezioneFormBody({
+  document.getElementById('lezione-body').innerHTML = newEventKindPickerHtml('lezione') + lezioneFormBody({
     data, ora: defaultOra || '',
-    classe: slot?.classe || (state.klass !== 'all' ? state.klass : ''),
+    classe: slot?.classe || defaultClasse || (state.klass !== 'all' ? state.klass : ''),
     materia: slot?.materia || '',
   }, anno);
+  wireNewEventKindPicker('lezione');
   document.getElementById('lezione-delete').classList.add('hidden');
   document.getElementById('lezione-overlay').classList.remove('hidden');
   wireLezioneFormEvents(anno);
+}
+
+// ── "+" unificato: nei modali "nuovo" (lezione, colloquio, appuntamento,
+// uscita) un selettore in cima permette di passare a un altro tipo di
+// evento senza chiudere e cercare la sezione giusta — es. dal "+" di Lezioni
+// si aggiunge direttamente un colloquio. Data (e classe, dove esiste) già
+// inserite vengono portate nel nuovo modale.
+const NEW_EVENT_KINDS = [
+  { kind: 'lezione', label: 'Lezione', body: 'lezione-body' },
+  { kind: 'colloquio', label: 'Colloquio', body: 'colloquio-body' },
+  { kind: 'appuntamento', label: 'Appuntamento', body: 'appuntamento-body' },
+  { kind: 'uscita', label: 'Uscita', body: 'uscita-body' },
+];
+function newEventKindPickerHtml(active) {
+  return `<div class="seg-toggle new-kind-picker">${NEW_EVENT_KINDS.map(k =>
+    `<button type="button" class="seg-btn ${k.kind === active ? 'active' : ''}" data-kind="${k.kind}">${k.label}</button>`).join('')}</div>`;
+}
+function wireNewEventKindPicker(active) {
+  const body = document.getElementById(NEW_EVENT_KINDS.find(k => k.kind === active).body);
+  body.querySelectorAll('.new-kind-picker .seg-btn').forEach(btn => btn.addEventListener('click', () => {
+    const kind = btn.dataset.kind;
+    if (kind === active) return;
+    const v = id => document.getElementById(id)?.value.trim() || '';
+    const carry = {
+      lezione: () => ({ data: v('lz-data'), classe: v('lz-classe') }),
+      colloquio: () => ({ data: v('cl-data') }),
+      appuntamento: () => ({ data: v('ap-data'), classe: v('ap-classe') }),
+      uscita: () => ({ data: v('us-data'), classe: [...usSelectedClassi][0] || '' }),
+    }[active]();
+    ({ lezione: closeLezione, colloquio: closeColloquio, appuntamento: closeAppuntamento, uscita: closeUscita })[active]();
+    ({
+      lezione: c => openLezioneNew(c.data, undefined, c.classe),
+      colloquio: openColloquioNew, appuntamento: openAppuntamentoNew, uscita: openUscitaNew,
+    })[kind](carry);
+  }));
 }
 function closeLezione() { document.getElementById('lezione-overlay').classList.add('hidden'); lezioneCtx = null; }
 document.getElementById('lezione-close').addEventListener('click', closeLezione);
@@ -5963,6 +5986,7 @@ function updateCompitiBulkBar() {
   const bar = document.getElementById('compiti-bulk-bar');
   const n = state.compitiSelected.size;
   bar.classList.toggle('hidden', n === 0);
+  syncBulkEdit(bar, n);
   document.getElementById('compiti-sel-count').textContent = `${n} compit${n === 1 ? 'o' : 'i'} selezionat${n === 1 ? 'o' : 'i'}`;
 }
 
@@ -6005,14 +6029,6 @@ function renderCompiti() {
           <td><input class="vf-input lez-field" data-f="materia" list="compiti-elenco-materie" value="${escHtml(l.materia || '')}"/></td>
           <td><input class="vf-input lez-field" data-f="compiti" value="${escHtml(l.compiti)}"/></td>
           <td class="col-hide-m"><input type="date" class="vf-input lez-field" data-f="data" value="${escHtml(l.data)}"/></td>
-          <td class="vt-actions">
-            <button class="grade-edit" data-anno="${escHtml(anno)}" data-id="${l.id}" title="Modifica (tutti i campi)">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-            </button>
-            <button class="grade-rm" data-anno="${escHtml(anno)}" data-id="${l.id}" title="Elimina l'intera lezione (non solo il compito)">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-          </td>
         </tr>`;
   };
   const compitiThead = `
@@ -6021,8 +6037,7 @@ function renderCompiti() {
       <th class="sortable" data-sort="classe">Classe${sortIcon('compiti', 'classe')}</th>
       <th class="sortable" data-sort="materia">Materia${sortIcon('compiti', 'materia')}</th>
       <th>Compiti</th>
-      <th class="col-hide-m sortable" data-sort="data">Assegnati il${sortIcon('compiti', 'data')}</th>
-      <th></th>`;
+      <th class="col-hide-m sortable" data-sort="data">Assegnati il${sortIcon('compiti', 'data')}</th>`;
   const datalistsHtml = `<datalist id="compiti-elenco-classi">${classiList.map(c => `<option value="${escHtml(c)}">`).join('')}</datalist>
        <datalist id="compiti-elenco-materie">${materieList.map(m => `<option value="${escHtml(m)}">`).join('')}</datalist>`;
   let activeContainer;
@@ -6043,16 +6058,10 @@ function renderCompiti() {
     const { anno, id } = inp.closest('tr').dataset;
     inlineUpdateLezione(anno, id, { [inp.dataset.f]: inp.value });
   }));
-  activeContainer.querySelectorAll('.grade-edit').forEach(btn => btn.addEventListener('click', () => openLezione(btn.dataset.anno, btn.dataset.id)));
-  activeContainer.querySelectorAll('.grade-rm').forEach(btn => btn.addEventListener('click', async () => {
-    if (!confirm('Eliminare questa lezione?')) return;
-    await DB.removeLezione(btn.dataset.anno, btn.dataset.id);
-    renderAll();
-  }));
   // Niente più checkbox: click sulla riga (fuori da campi/bottoni) seleziona,
   // come Alunni/Voti/Lezioni. In mobile espande invece di selezionare.
   activeContainer.querySelectorAll('tbody tr').forEach(row => row.addEventListener('click', e => {
-    if (e.target.closest('.lez-field') || e.target.closest('.grade-edit') || e.target.closest('.grade-rm')) return;
+    if (e.target.closest('.lez-field')) return;
     if (isMobileWidth()) { toggleRowExpand(row); return; }
     const key = row.dataset.key;
     if (state.compitiSelected.has(key)) state.compitiSelected.delete(key);
@@ -6107,6 +6116,7 @@ function updateTodoBulkBar() {
   const bar = document.getElementById('todo-bulk-bar');
   const n = state.todoSelected.size;
   bar.classList.toggle('hidden', n === 0);
+  syncBulkEdit(bar, n);
   document.getElementById('todo-sel-count').textContent = `${n} to-do selezionat${n === 1 ? 'o' : 'i'}`;
 }
 function todoRowHtml(t) {
@@ -6116,14 +6126,6 @@ function todoRowHtml(t) {
       <td>${escHtml(t.titolo)}</td>
       <td><span class="todo-pill" style="--todo-color:${todoStatoColor(t.stato)}">${escHtml(todoStatoLabel(t.stato))}</span></td>
       <td class="vt-mono ${scadCls}">${t.scadenza ? fmtData(t.scadenza) : '—'}</td>
-      <td class="vt-actions">
-        <button class="grade-edit" data-edit-todo="${t.id}" title="Modifica">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        </button>
-        <button class="grade-rm" data-rm-todo="${t.id}" title="Elimina">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </td>
     </tr>`;
 }
 function renderTodoElenco(unsortedList) {
@@ -6145,20 +6147,11 @@ function renderTodoElenco(unsortedList) {
       <th class="sortable" data-sort="titolo">Titolo${sortIcon('todo', 'titolo')}</th>
       <th class="sortable" data-sort="stato">Stato${sortIcon('todo', 'stato')}</th>
       <th class="sortable" data-sort="scadenza">Scadenza${sortIcon('todo', 'scadenza')}</th>
-      <th></th>
     </tr></thead>
     <tbody>${list.map(todoRowHtml).join('')}</tbody>
   </table>`;
 
-  wrap.querySelectorAll('[data-edit-todo]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); openTodoModal(unsortedList.find(x => x.id === b.dataset.editTodo)); }));
-  wrap.querySelectorAll('[data-rm-todo]').forEach(b => b.addEventListener('click', async e => {
-    e.stopPropagation();
-    if (!confirm('Eliminare questo to-do?')) return;
-    try { await DB.saveTodos(DB.getTodos().filter(x => x.id !== b.dataset.rmTodo)); renderAll(); }
-    catch (err) { alert('Errore durante l\'eliminazione: ' + err.message); }
-  }));
   wrap.querySelectorAll('tbody tr').forEach(row => row.addEventListener('click', e => {
-    if (e.target.closest('[data-edit-todo]') || e.target.closest('[data-rm-todo]')) return;
     const id = row.dataset.id;
     if (state.todoSelected.has(id)) state.todoSelected.delete(id);
     else state.todoSelected.add(id);
@@ -6859,7 +6852,7 @@ document.getElementById('btn-report-os-pdf').addEventListener('click', () => {
 
   const doc = new jspdf.jsPDF();
   doc.setFontSize(14);
-  doc.text('Report Orali/Scritti', 14, 15);
+  doc.text('Report orali/scritti', 14, 15);
   doc.setFontSize(9);
   doc.setTextColor(120);
   doc.text(`${materia} · ${classe} · ${anno}`, 14, 21);
@@ -7053,23 +7046,19 @@ function materialeFiltered() {
 }
 function materialeRowHtml(r) {
   return `
-    <tr data-id="${escHtml(r.id)}">
+    <tr class="row-selectable ${state.materialeSelected.has(r.id) ? 'selected' : ''}" data-id="${escHtml(r.id)}">
+      <td class="row-drag" title="Seleziona"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="8" cy="6" r="1.6"/><circle cx="8" cy="12" r="1.6"/><circle cx="8" cy="18" r="1.6"/><circle cx="16" cy="6" r="1.6"/><circle cx="16" cy="12" r="1.6"/><circle cx="16" cy="18" r="1.6"/></svg></td>
       <td>${escHtml(r.titolo)}</td>
       <td><span class="mat-chip" style="--mat-color:${colorOfName(r.categoria)}">${escHtml(r.categoria)}</span></td>
       <td>${r.materia ? escHtml(r.materia) : '—'}</td>
       <td>${r.argomento ? escHtml(r.argomento) : '—'}</td>
       <td class="vt-actions">
         <a class="grade-meet" href="${escHtml(r.link)}" target="_blank" rel="noopener noreferrer" title="Apri il documento (Drive)">${MATERIALE_OPEN_ICON}</a>
-        <button class="grade-edit" data-id="${escHtml(r.id)}" title="Modifica">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        </button>
-        <button class="grade-rm" data-id="${escHtml(r.id)}" title="Elimina">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
       </td>
     </tr>`;
 }
 const MATERIALE_THEAD = `
+    <th></th>
     <th>Titolo</th>
     <th>Categoria</th>
     <th>Materia</th>
@@ -7088,6 +7077,11 @@ function renderMateriale() {
   const panel = wrap.closest('.table-panel');
   const groupsWrap = document.getElementById('materiale-groups');
   const empty = document.getElementById('materiale-empty');
+  const visibleIds = new Set(rows.map(r => r.id));
+  [...state.materialeSelected].forEach(id => { if (!visibleIds.has(id)) state.materialeSelected.delete(id); });
+  updateMaterialeBulkBar(rows);
+  wireMaterialeRows(wrap);
+  wireMaterialeRows(groupsWrap);
 
   if (!rows.length) {
     wrap.innerHTML = ''; panel.classList.add('hidden');
@@ -7111,13 +7105,42 @@ function renderMateriale() {
     wrap.innerHTML = `<table class="voti-table materiale-table"><thead><tr>${MATERIALE_THEAD}</tr></thead><tbody>${rows.map(materialeRowHtml).join('')}</tbody></table>`;
     activeContainer = wrap;
   }
-
-  activeContainer.querySelectorAll('.grade-edit').forEach(btn => btn.addEventListener('click', () => {
-    const rec = materialeAll().find(r => r.id === btn.dataset.id);
-    if (rec) openMaterialeModal(rec);
-  }));
-  activeContainer.querySelectorAll('.grade-rm').forEach(btn => btn.addEventListener('click', () => materialeDelete(btn.dataset.id)));
 }
+// Delegazione sul contenitore (che resta lo stesso fra un render e l'altro):
+// agganciata una volta sola, vale anche per le pagine dei gruppi
+function wireMaterialeRows(container) {
+  if (container.dataset.selWired) return;
+  container.dataset.selWired = '1';
+  container.addEventListener('click', e => {
+    const row = e.target.closest('tr[data-id]');
+    if (!row || e.target.closest('.grade-meet')) return;
+    const id = row.dataset.id;
+    if (state.materialeSelected.has(id)) state.materialeSelected.delete(id);
+    else state.materialeSelected.add(id);
+    row.classList.toggle('selected');
+    updateMaterialeBulkBar();
+  });
+}
+function updateMaterialeBulkBar(rows) {
+  const bar = document.getElementById('materiale-bulk-bar');
+  const n = state.materialeSelected.size;
+  bar.classList.toggle('hidden', n === 0);
+  syncBulkEdit(bar, n);
+  document.getElementById('materiale-sel-count').textContent = `${n} element${n === 1 ? 'o' : 'i'} selezionat${n === 1 ? 'o' : 'i'}`;
+  const ids = (rows || materialeFiltered()).map(r => r.id);
+  const allSel = ids.length > 0 && ids.every(id => state.materialeSelected.has(id));
+  const selAllBtn = document.getElementById('btn-materiale-select-all');
+  selAllBtn.classList.toggle('active', allSel);
+  selAllBtn.title = allSel ? 'Deseleziona tutto' : 'Seleziona tutto';
+}
+document.getElementById('btn-materiale-select-all').addEventListener('click', () => {
+  const ids = materialeFiltered().map(r => r.id);
+  const allSel = ids.length > 0 && ids.every(id => state.materialeSelected.has(id));
+  if (allSel) ids.forEach(id => state.materialeSelected.delete(id));
+  else ids.forEach(id => state.materialeSelected.add(id));
+  renderMateriale();
+});
+document.getElementById('btn-materiale-elimina-bulk').addEventListener('click', () => materialeDeleteMany([...state.materialeSelected]));
 
 function materialeFormBody(r) {
   return `
@@ -7179,17 +7202,24 @@ document.getElementById('materiale-delete').addEventListener('click', async () =
   await materialeDelete(materialeCtx);
   closeMaterialeModal();
 });
-async function materialeDelete(id) {
-  if (!confirm('Eliminare questo materiale?')) return;
+async function materialeDelete(id) { return materialeDeleteMany([id]); }
+async function materialeDeleteMany(ids) {
+  if (!ids.length) return;
+  if (!confirm(ids.length === 1 ? 'Eliminare questo materiale?' : `Eliminare ${ids.length} elementi del materiale?`)) return;
   const overlay = materialeCloneOverlay();
-  if (materialeIsSeed(id)) {
-    if (!overlay.deleted.includes(id)) overlay.deleted.push(id);
-    delete overlay.edited[id];
-  } else {
-    overlay.added = overlay.added.filter(a => a.id !== id);
-  }
-  await DB.saveMaterialeUser(overlay);
-  renderView();
+  ids.forEach(id => {
+    if (materialeIsSeed(id)) {
+      if (!overlay.deleted.includes(id)) overlay.deleted.push(id);
+      delete overlay.edited[id];
+    } else {
+      overlay.added = overlay.added.filter(a => a.id !== id);
+    }
+  });
+  try {
+    await DB.saveMaterialeUser(overlay);
+    ids.forEach(id => state.materialeSelected.delete(id));
+    renderView();
+  } catch (err) { alert('Errore durante l\'eliminazione: ' + err.message); }
 }
 
 // ── Scheda alunno (pagina dedicata, non modale, sempre in sidebar) ───
@@ -8514,6 +8544,39 @@ document.getElementById('voti-preview-confirm').addEventListener('click', async 
   } finally {
     btn.disabled = false;
   }
+});
+
+// ── Azioni di gruppo: "Modifica" nella barra floating ────────────────
+// Le tabelle non hanno pulsanti modifica/elimina in riga: si seleziona la
+// riga e si agisce dalla barra in basso. "Modifica" compare solo con
+// esattamente un elemento selezionato (l'eliminazione resta anche multipla).
+function syncBulkEdit(bar, n) {
+  bar.querySelector('.bulk-edit-btn')?.classList.toggle('hidden', n !== 1);
+}
+function onBulkEdit(key, selected, open) {
+  document.getElementById(`btn-${key}-modifica-bulk`).addEventListener('click', () => {
+    const [only] = [...selected()];
+    if (only !== undefined) open(only);
+  });
+}
+// Chiave "anno|id" → [anno, id] (l'anno contiene "/", mai "|")
+const annoIdOf = k => { const i = k.lastIndexOf('|'); return [k.slice(0, i), k.slice(i + 1)]; };
+onBulkEdit('voti', () => state.votiSelected, k => {
+  const [sid, anno, ...rest] = k.split('|'); // "sid|anno|materia|gid"
+  const gradeId = rest.pop();
+  openForm('grade', { editing: { sid, anno, materia: rest.join('|'), gradeId } });
+});
+onBulkEdit('rubriche', () => state.rubricheSelected, id => openRubricaModal(DB.getRubriche().find(r => r.id === id)));
+onBulkEdit('bes', () => state.besSelected, id => openBesModal(state.students.find(s => s.id === id)));
+onBulkEdit('lezioni', () => state.lezioniSelected, k => openLezione(...annoIdOf(k)));
+onBulkEdit('compiti', () => state.compitiSelected, k => openLezione(...annoIdOf(k)));
+onBulkEdit('todo', () => state.todoSelected, id => openTodoModal(DB.getTodos().find(t => t.id === id)));
+onBulkEdit('colloqui', () => state.colloquiSelected, k => openColloquio(...annoIdOf(k)));
+onBulkEdit('appuntamenti', () => state.appuntamentiSelected, k => openAppuntamento(...annoIdOf(k)));
+onBulkEdit('uscite', () => state.usciteSelected, k => openUscita(...annoIdOf(k)));
+onBulkEdit('materiale', () => state.materialeSelected, id => {
+  const rec = materialeAll().find(r => r.id === id);
+  if (rec) openMaterialeModal(rec);
 });
 
 // ── Export / Import backup ──────────────────────────────────────────

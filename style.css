@@ -950,11 +950,12 @@ textarea.vf-input { resize: vertical; min-height: 64px; }
    <table> (una per gruppo) si dimensiona sul proprio contenuto e le
    colonne finiscono disallineate da un gruppo all'altro. */
 .materiale-table { table-layout: fixed; width: 100%; }
-.materiale-table th:first-child, .materiale-table td:first-child { width: 32%; white-space: normal; }
-.materiale-table th:nth-child(2), .materiale-table td:nth-child(2) { width: 18%; }
-.materiale-table th:nth-child(3), .materiale-table td:nth-child(3) { width: 14%; }
-.materiale-table th:nth-child(4), .materiale-table td:nth-child(4) { width: 24%; }
-.materiale-table th:nth-child(5), .materiale-table td:nth-child(5) { width: 12%; }
+.materiale-table th:first-child, .materiale-table td:first-child { width: 32px; }
+.materiale-table th:nth-child(2), .materiale-table td:nth-child(2) { width: 34%; white-space: normal; }
+.materiale-table th:nth-child(3), .materiale-table td:nth-child(3) { width: 18%; }
+.materiale-table th:nth-child(4), .materiale-table td:nth-child(4) { width: 14%; }
+.materiale-table th:nth-child(5), .materiale-table td:nth-child(5) { width: 24%; }
+.materiale-table th:nth-child(6), .materiale-table td:nth-child(6) { width: 56px; }
 
 /* ── Dettaglio classe (inline nella pagina) ───────────────────────── */
 .cm-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
@@ -1125,6 +1126,48 @@ textarea.vf-input { resize: vertical; min-height: 64px; }
 }
 .dash-item-top .mat-chip { margin-left: auto; flex-shrink: 0; }
 .dash-item-text { font-size: 11.5px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4; }
+/* Nei widget (dashboard, scheda classe) gli elementi sono righe come quelle
+   delle tabelle: stesso sfondo del pannello, separatore sotto, evidenza al
+   passaggio — non "card" con uno sfondo proprio */
+.dash-widget .dash-list, #cd-verifiche-list, #coord-verifiche-list { gap: 0; }
+.dash-widget .dash-item, #cd-verifiche-list .dash-item, #coord-verifiche-list .dash-item {
+  background: transparent; border: none; border-radius: 0;
+  border-bottom: 1px solid var(--border-idle);
+  padding: 9px 12px; transition: background var(--transition);
+}
+.dash-widget .dash-item:last-child, #cd-verifiche-list .dash-item:last-child, #coord-verifiche-list .dash-item:last-child { border-bottom: none; }
+.dash-widget .dash-item:hover, #cd-verifiche-list .dash-item:hover, #coord-verifiche-list .dash-item:hover { background: var(--bg3); }
+
+/* Mini-calendario della dashboard: mese compatto con un pallino per tipo di
+   evento (colloqui/appuntamenti/uscite, stessi colori del Calendario);
+   sotto, l'elenco dei prossimi eventi o di quelli del giorno cliccato */
+.btn-icon-sm { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; }
+.mini-cal-nav { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.mini-cal-label { font-size: 12px; font-weight: 600; color: var(--text-primary); min-width: 110px; text-align: center; }
+.mini-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-bottom: 10px; }
+.mini-cal-dow { font-size: 10px; font-weight: 700; color: var(--text-hint); text-align: center; padding-bottom: 4px; text-transform: uppercase; }
+.mini-cal-day {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  height: 34px; border-radius: 6px; border: 1px solid transparent; background: transparent;
+  font-family: 'Space Mono', monospace; font-size: 11.5px; color: var(--text-secondary);
+  cursor: pointer; transition: all var(--transition); padding: 0;
+}
+.mini-cal-day:hover { border-color: var(--border-hover); color: var(--text-primary); }
+.mini-cal-day.outside { opacity: 0.35; }
+.mini-cal-day.today { color: var(--accent-blue); font-weight: 700; border-color: var(--accent-blue); }
+.mini-cal-day.selected { background: var(--bg3); color: var(--text-primary); border-color: var(--border-hover); }
+.mini-cal-dots { display: flex; gap: 2px; height: 5px; }
+.mini-cal-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--dot-color); }
+.mini-cal-list-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 11px; font-weight: 700; color: var(--text-hint); text-transform: uppercase; letter-spacing: 0.4px;
+  margin-bottom: 6px;
+}
+.btn-link {
+  background: none; border: none; padding: 0; cursor: pointer;
+  font-size: 11px; font-weight: 600; color: var(--accent-blue); text-transform: none; letter-spacing: 0;
+}
+.btn-link:hover { text-decoration: underline; }
 
 /* ── Bonus/Malus ────────────────────────────────────────────────── */
 /* Colonne Stelline/Teschietti/Quadernetti a larghezza fissa ed uguale,
@@ -1132,49 +1175,21 @@ textarea.vf-input { resize: vertical; min-height: 64px; }
    table-layout:fixed la colonna con più icone si allargherebbe rispetto
    alle altre ad ogni aggiunta. */
 .bm-table { table-layout: fixed; width: 100%; }
-.bm-table th:first-child, .bm-table td:first-child { width: 180px; }
-/* I pulsantini +/- restano fissi all'estrema destra della colonna: le
-   icone (che vanno a capo su più righe, se tante) stanno in un blocco
-   flessibile a sinistra, i pulsantini in un blocco a larghezza fissa che
-   non va mai a capo, spinto a destra da flex sul contenitore. */
+.bm-table th:first-child, .bm-table td:first-child { width: 32px; }
+.bm-table th:nth-child(2), .bm-table td:nth-child(2) { width: 180px; }
 .bm-icons-cell { display: flex; align-items: flex-start; gap: 6px; }
 .bm-icons-row { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; flex: 1; min-width: 0; }
-.bm-icons-actions { display: flex; gap: 2px; flex-shrink: 0; }
+/* Pulsanti "aggiungi" nella barra di gruppo: l'icona del tipo, nel suo colore */
+.bm-bulk-add-btn { color: var(--bm-color); }
+.bm-bulk-add-btn:hover { border-color: var(--bm-color); color: var(--bm-color); }
 .bm-icon-item {
   display: inline-flex; align-items: center; justify-content: center;
   width: 22px; height: 22px; border-radius: 6px; cursor: pointer;
   color: var(--bm-color, var(--text-secondary)); opacity: 0.85;
   transition: all var(--transition);
 }
-.bm-icon-item:hover, .bm-icon-item.active { background: var(--bg3); opacity: 1; }
-/* Popover inline: compare accanto all'icona cliccata, dentro la stessa
-   cella — non un'intera riga espansa, solo data + rimozione di quell'unico
-   elemento */
-.bm-icon-popover {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 11px; font-weight: 600; padding: 3px 6px 3px 9px; border-radius: 20px;
-  background: var(--bg3); border: 1px solid var(--bm-color, var(--border-idle));
-  color: var(--bm-color, var(--text-secondary)); white-space: nowrap;
-}
-.bm-chip-rm {
-  display: flex; align-items: center; justify-content: center;
-  width: 16px; height: 16px; border-radius: 50%; color: inherit;
-  opacity: 0.7; cursor: pointer; flex-shrink: 0; transition: all var(--transition);
-}
-.bm-chip-rm:hover { background: var(--accent-red); color: #fff; opacity: 1; }
-
-/* Pulsantini +/- compatti, in fondo a ciascuna colonna della tabella
-   Bonus/Malus e nella Scheda alunno (aggiunta rapida) */
-.bm-mini-btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 18px; height: 18px; border-radius: 5px;
-  border: 1px solid var(--border-idle); background: var(--bg3);
-  color: var(--text-hint); cursor: pointer; flex-shrink: 0;
-  transition: all var(--transition);
-}
-.bm-mini-btn:hover { border-color: var(--accent-blue); color: var(--accent-blue); }
-.bm-mini-btn:disabled { opacity: 0.35; cursor: default; }
-.bm-mini-btn:disabled:hover { border-color: var(--border-idle); color: var(--text-hint); }
+/* Al passaggio diventa rossa: il clic la elimina */
+.bm-icon-item:hover { background: rgba(255,59,59,0.12); color: var(--accent-red); opacity: 1; }
 
 /* Riepilogo icona+conteggio: resta il secondo dei tre elementi distribuiti
    da .ad-header-bottom (space-between), quindi centrato fra i tab anno e
@@ -1191,13 +1206,14 @@ textarea.vf-input { resize: vertical; min-height: 64px; }
 }
 
 .bm-score-chip {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 18px; height: 18px; padding: 0; border-radius: 50%;
-  background: var(--bg3); border: 1px solid var(--bm-color, var(--border-idle));
+  display: inline-flex; align-items: center; gap: 3px;
+  height: 18px; padding: 0 6px; border-radius: 20px;
+  background: color-mix(in srgb, var(--bm-color, var(--text-hint)) 14%, transparent);
   color: var(--bm-color, var(--text-secondary));
-  margin-left: 4px; vertical-align: middle;
+  font-family: 'Space Mono', monospace; font-size: 10.5px; font-weight: 700;
+  margin-left: 6px; vertical-align: middle;
 }
-.bm-score-chip svg { width: 10px; height: 10px; flex-shrink: 0; }
+.bm-score-chip svg { width: 11px; height: 11px; flex-shrink: 0; }
 
 /* ── Lista voti "Voto classe" (form) ──────────────────────────────── */
 .gc-list {
@@ -1706,3 +1722,14 @@ textarea.vf-input { resize: vertical; min-height: 64px; }
   background: color-mix(in srgb, var(--todo-color, var(--text-hint)) 16%, transparent);
 }
 .todo-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+/* Stessa pill, colore generico (es. Tipo nell'elenco Appuntamenti) */
+.tag-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;
+  padding: 3px 9px; border-radius: 20px; white-space: nowrap;
+  color: var(--pill-color, var(--text-hint));
+  background: color-mix(in srgb, var(--pill-color, var(--text-hint)) 16%, transparent);
+}
+.tag-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+/* Selettore tipo nei modali "nuovo" (lezione/colloquio/appuntamento/uscita) */
+.new-kind-picker { flex-wrap: wrap; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--border-idle); }
