@@ -709,25 +709,27 @@
             <p>Scegli anno e classe specifici nei filtri in alto: qui sotto compare la griglia con un alunno per riga.</p>
           </div>
         </div>
+        <!-- Percentuali e griglia sono due viste dello stesso pannello: i dati
+             convivono, si passa dall'una all'altra coi tab (o con Converti) -->
         <div class="hidden panel" id="vv-grid-panel" style="margin-bottom:16px">
           <div class="panel-head">
-            <span class="panel-title">Punteggi esercizi (%)</span>
-            <button class="btn-icon" id="btn-vv-punteggi-csv" title="Scarica CSV">
+            <div class="seg-toggle" id="vv-view-toggle">
+              <button class="seg-btn active" type="button" data-vvv="pct">Punteggi esercizi (%)</button>
+              <button class="seg-btn" type="button" data-vvv="griglia">Griglia di valutazione</button>
+            </div>
+            <div class="vv-head-actions">
+              <button class="btn-icon" id="btn-vv-punteggi-csv" title="Scarica CSV">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             </button>
-            <button class="btn-primary" id="vv-save">Salva voti</button>
+              <button class="btn-icon hidden" id="btn-vv-griglia-csv" title="Scarica CSV">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </button>
+              <button class="btn-ghost" id="vv-converti" type="button" title="Converte le percentuali nei tre valori A/B/C della griglia">Converti</button>
+              <button class="btn-primary" id="vv-save">Salva voti</button>
+            </div>
           </div>
           <div class="table-wrap" id="vv-grid-wrap"></div>
-        </div>
-        <div class="hidden panel" id="vv-griglia-panel">
-          <div class="panel-head">
-            <span class="panel-title">Griglia di valutazione</span>
-            <button class="btn-icon" id="btn-vv-griglia-csv" title="Scarica CSV">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            </button>
-            <button class="btn-ghost" id="vv-converti">Converti percentuali → griglia</button>
-          </div>
-          <div class="table-wrap" id="vv-griglia-wrap"></div>
+          <div class="table-wrap hidden" id="vv-griglia-wrap"></div>
         </div>
         <div class="hidden panel" id="vv-pratico-panel">
           <div class="panel-head">

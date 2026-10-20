@@ -2772,6 +2772,11 @@ function vvHasGrigliaEs(s, esId) { return vvSommaGrigliaEs(s, esId) != null; }
 // Somma A+B+C (scala fissa su 10) riportata sul punteggio massimo di
 // quell'esercizio, es. esercizio da 5 punti e somma 8.5/10 → 4.25/5
 function vvSommaEsPunti(somma, max) { return somma == null ? null : (somma / 10) * max; }
+// "4,25/5" sotto gli A/B/C: il valore in evidenza, "/totale" attenuato
+function vvSommaEsHtml(somma, max) {
+  if (somma == null) return '—';
+  return `${fmt(vvSommaEsPunti(somma, max))}<span class="vv-somma-tot">/${fmt(max).replace(/,00$/, '')}</span>`;
+}
 function vvHasGriglia(s) { return vvState.esercizi.some(e => vvHasGrigliaEs(s, e.id)); }
 // Voto complessivo dalla griglia: somma di ciascun esercizio (già su 10)
 // pesata come le percentuali, sullo stesso punteggio massimo dell'esercizio
@@ -2781,6 +2786,23 @@ function vvVotoGriglia(s) {
   if (!sommaMax || !vvHasGriglia(s)) return null;
   const totPesato = vvState.esercizi.reduce((acc, e) => acc + (vvSommaGrigliaEs(s, e.id) || 0) * (e.max / sommaMax), 0);
   return roundVoto025(totPesato);
+}
+// Percentuale → A/B/C (A e B su 4 a passi di 0,5, C su 2 a passi di 0,25);
+// percentuale vuota → griglia vuota per quell'esercizio
+function vvGrigliaFromPct(sid, eid) {
+  const pct = parseFloat(vvState.percentuali[sid]?.[eid]);
+  if (!Number.isFinite(pct)) { if (vvState.griglia[sid]) delete vvState.griglia[sid][eid]; return; }
+  (vvState.griglia[sid] ||= {})[eid] = {
+    a: Math.round((pct / 100 * 4) * 2) / 2,
+    b: Math.round((pct / 100 * 4) * 2) / 2,
+    c: Math.round((pct / 100 * 2) * 4) / 4,
+  };
+}
+// A/B/C → percentuale (A+B+C è già su 10); griglia vuota → percentuale vuota
+function vvPctFromGriglia(sid, eid) {
+  const somma = vvSommaGrigliaEs({ id: sid }, eid);
+  if (somma == null) { if (vvState.percentuali[sid]) delete vvState.percentuali[sid][eid]; return; }
+  (vvState.percentuali[sid] ||= {})[eid] = String(Math.round(somma * 10 * 10) / 10);
 }
 function vvVotoFinale(s) { return vvHasGriglia(s) ? vvVotoGriglia(s) : vvVotoPercentuali(s); }
 
@@ -2853,7 +2875,6 @@ function renderVVGrid() {
   const tipo = document.getElementById('vv-tipo').value;
   const esBlock = document.getElementById('vv-esercizi-block');
   const panel = document.getElementById('vv-grid-panel');
-  const grigliaPanel = document.getElementById('vv-griglia-panel');
   const praticoPanel = document.getElementById('vv-pratico-panel');
   const empty = document.getElementById('vv-empty');
   const target = classeDetailTarget(); // riusa Anno/Classe dai filtri, come la Scheda classe
@@ -2863,7 +2884,6 @@ function renderVVGrid() {
   if (tipo === 'pratico') {
     esBlock.classList.add('hidden');
     panel.classList.add('hidden');
-    grigliaPanel.classList.add('hidden');
     const ready = target.mode === 'single';
     praticoPanel.classList.toggle('hidden', !ready);
     empty.classList.toggle('hidden', ready);
@@ -2876,9 +2896,9 @@ function renderVVGrid() {
 
   const ready = target.mode === 'single' && vvState.esercizi.length > 0;
   panel.classList.toggle('hidden', !ready);
-  grigliaPanel.classList.toggle('hidden', !ready);
   empty.classList.toggle('hidden', ready);
   if (!ready) return;
+  vvSyncView();
 
   const { anno, classe } = target;
   const stu = state.students.filter(s => s.anni?.[anno]?.classe === classe)
@@ -2992,7 +3012,40 @@ document.querySelectorAll('#vv-pratico-modo .seg-btn').forEach(btn => btn.addEve
 // per intero andrebbe a sovrapporsi alla colonna Data accanto
 function vvAlunnoCell(s, showBM) {
   const profilo = s.profilo && s.profilo !== 'ND' ? s.profilo : '';
-  return `${escHtml(s.cognome)} ${escHtml(s.nome)}${profilo ? `<span class="profilo-badge pb-inline pb-${profilo.toLowerCase()}">${escHtml(profilo)}</span>` : ''}${showBM ? bmScoreChipsHtml(s) : ''}`;
+  return `<div class="vv-alunno"><span class="vv-alunno-nome" title="${escHtml(s.cognome)} ${escHtml(s.nome)}">${escHtml(s.cognome)} ${escHtml(s.nome)}</span>${profilo ? `<span class="profilo-badge pb-inline pb-${profilo.toLowerCase()}">${escHtml(profilo)}</span>` : ''}${showBM ? bmScoreChipsHtml(s) : ''}</div>`;
+}
+
+// ── Vista attiva del pannello voti (percentuali / griglia) e confronto voti ──
+let vvView = 'pct';
+function vvSyncView() {
+  document.querySelectorAll('#vv-view-toggle .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.vvv === vvView));
+  document.getElementById('vv-grid-wrap').classList.toggle('hidden', vvView !== 'pct');
+  document.getElementById('vv-griglia-wrap').classList.toggle('hidden', vvView !== 'griglia');
+  document.getElementById('btn-vv-punteggi-csv').classList.toggle('hidden', vvView !== 'pct');
+  document.getElementById('btn-vv-griglia-csv').classList.toggle('hidden', vvView !== 'griglia');
+  document.getElementById('vv-converti').title = vvView === 'pct'
+    ? 'Converte le percentuali nei valori A/B/C e passa alla griglia'
+    : 'Converte la griglia in percentuali e torna ai punteggi';
+}
+document.querySelectorAll('#vv-view-toggle .seg-btn').forEach(btn => btn.addEventListener('click', () => {
+  vvView = btn.dataset.vvv;
+  renderVVGrid(); // ridisegna entrambe: il confronto voti riflette le ultime modifiche
+}));
+// Le due colonne voto (da percentuali e da griglia), in entrambe le viste:
+// gialle quando danno un risultato diverso
+const VV_VOTI_TH = '<th>Voto %</th><th>Voto griglia</th>';
+function vvVotiCellsHtml(sid) {
+  const vp = vvVotoPercentuali({ id: sid });
+  const vg = vvVotoGriglia({ id: sid });
+  const diff = vp != null && vg != null && Math.abs(vp - vg) > 0.001;
+  const cell = (v, cls) => `<td class="vt-mono vt-voto ${cls} ${v != null ? gradeClass(v) : ''} ${diff ? 'vv-voto-diff' : ''}" ${diff ? 'title="Voto da percentuali e voto da griglia diversi"' : ''}>${v != null ? fmt(v) : '—'}</td>`;
+  return cell(vp, 'vv-voto-pct') + cell(vg, 'vv-voto-g');
+}
+function vvRefreshVotiCells(row, sid) {
+  const tmp = document.createElement('tr');
+  tmp.innerHTML = vvVotiCellsHtml(sid);
+  row.querySelector('.vv-voto-pct').replaceWith(tmp.children[0]);
+  row.querySelector('.vv-voto-g').replaceWith(tmp.children[0]);
 }
 function renderVVPunteggiTable(stu) {
   document.getElementById('vv-grid-wrap').innerHTML = `
@@ -3001,17 +3054,16 @@ function renderVVPunteggiTable(stu) {
       <th>Alunno</th>
       <th>Data</th>
       ${vvState.esercizi.map((e, i) => `<th class="vt-mono">Es. ${i + 1}<br><span class="stat-sub">% (max ${fmt(e.max).replace(/,00$/, '')})</span></th>`).join('')}
-      <th>Voto</th>
+      ${VV_VOTI_TH}
     </tr></thead>
     <tbody>
       ${stu.map(s => {
         const pcts = vvState.percentuali[s.id] || {};
-        const voto = vvVotoPercentuali(s);
         return `<tr data-sid="${s.id}">
           <td>${vvAlunnoCell(s, true)}</td>
           <td><input class="vf-input vv-data-stu" data-sid="${s.id}" type="date" value="${vvDataOf(s)}"/></td>
           ${vvState.esercizi.map(e => `<td><input class="vf-input vv-pct" data-sid="${s.id}" data-eid="${e.id}" type="number" min="0" max="100" step="1" value="${pcts[e.id] ?? ''}"/></td>`).join('')}
-          <td class="vt-mono vt-voto vv-voto-pct ${voto != null ? gradeClass(voto) : ''}">${voto != null ? fmt(voto) : '—'}</td>
+          ${vvVotiCellsHtml(s.id)}
         </tr>`;
       }).join('')}
     </tbody>
@@ -3025,11 +3077,8 @@ function renderVVPunteggiTable(stu) {
     if (Number.isFinite(v) && v > 100) { v = 100; inp.value = '100'; }
     const { sid, eid } = inp.dataset;
     (vvState.percentuali[sid] ||= {})[eid] = inp.value;
-    const row = inp.closest('tr');
-    const voto = vvVotoPercentuali({ id: sid });
-    const votoCell = row.querySelector('.vv-voto-pct');
-    votoCell.textContent = voto != null ? fmt(voto) : '—';
-    votoCell.className = `vt-mono vt-voto vv-voto-pct ${voto != null ? gradeClass(voto) : ''}`;
+    vvGrigliaFromPct(sid, eid); // le due tabelle restano allineate
+    vvRefreshVotiCells(inp.closest('tr'), sid);
   }));
 }
 
@@ -3039,18 +3088,20 @@ function renderVVPunteggiTable(stu) {
 // intestazione, niente colspan/rowspan — con tante colonne uguali il
 // table-layout fixed le tiene della stessa dimensione anche ridimensionando).
 function renderVVGrigliaTable(stu) {
+  // Larghezza minima: Alunno + due colonne voto + ~150px per esercizio (tre
+  // campi leggibili): sotto, .table-wrap scorre in orizzontale
+  const minW = 250 + 2 * 82 + vvState.esercizi.length * 150;
   document.getElementById('vv-griglia-wrap').innerHTML = `
-  <table class="voti-table vv-griglia-table">
+  <table class="voti-table vv-griglia-table" style="min-width:${minW}px">
     <thead>
       <tr>
         <th>Alunno</th>
         ${vvState.esercizi.map((e, i) => `<th class="vt-mono">Es. ${i + 1} (A/4 B/4 C/2)</th>`).join('')}
-        <th>Voto</th>
+        ${VV_VOTI_TH}
       </tr>
     </thead>
     <tbody>
       ${stu.map(s => {
-        const voto = vvVotoGriglia(s);
         return `<tr data-sid="${s.id}">
           <td>${vvAlunnoCell(s, true)}</td>
           ${vvState.esercizi.map(e => {
@@ -3063,10 +3114,10 @@ function renderVVGrigliaTable(stu) {
                   <input class="vf-input vv-g" data-sid="${s.id}" data-eid="${e.id}" data-k="b" type="number" min="0" max="4" step="0.5" value="${g.b ?? ''}"/>
                   <input class="vf-input vv-g" data-sid="${s.id}" data-eid="${e.id}" data-k="c" type="number" min="0" max="2" step="0.25" value="${g.c ?? ''}"/>
                 </div>
-                <div class="vv-somma-es" data-sid="${s.id}" data-eid="${e.id}">${somma != null ? `${fmt(vvSommaEsPunti(somma, e.max))}/${fmt(e.max).replace(/,00$/, '')}` : '—'}</div>
+                <div class="vv-somma-es" data-sid="${s.id}" data-eid="${e.id}">${vvSommaEsHtml(somma, e.max)}</div>
               </td>`;
           }).join('')}
-          <td class="vt-mono vt-voto vv-voto-g ${voto != null ? gradeClass(voto) : ''}">${voto != null ? fmt(voto) : '—'}</td>
+          ${vvVotiCellsHtml(s.id)}
         </tr>`;
       }).join('')}
     </tbody>
@@ -3075,14 +3126,12 @@ function renderVVGrigliaTable(stu) {
   document.querySelectorAll('.vv-g').forEach(inp => inp.addEventListener('input', () => {
     const { sid, eid, k } = inp.dataset;
     ((vvState.griglia[sid] ||= {})[eid] ||= {})[k] = inp.value;
+    vvPctFromGriglia(sid, eid); // le due tabelle restano allineate
     const row = inp.closest('tr');
     const somma = vvSommaGrigliaEs({ id: sid }, eid);
     const esMax = vvState.esercizi.find(e => e.id === eid)?.max || 0;
-    row.querySelector(`.vv-somma-es[data-eid="${eid}"]`).textContent = somma != null ? `${fmt(vvSommaEsPunti(somma, esMax))}/${fmt(esMax).replace(/,00$/, '')}` : '—';
-    const voto = vvVotoGriglia({ id: sid });
-    const votoCell = row.querySelector('.vv-voto-g');
-    votoCell.textContent = voto != null ? fmt(voto) : '—';
-    votoCell.className = `vt-mono vt-voto vv-voto-g ${voto != null ? gradeClass(voto) : ''}`;
+    row.querySelector(`.vv-somma-es[data-eid="${eid}"]`).innerHTML = vvSommaEsHtml(somma, esMax);
+    vvRefreshVotiCells(row, sid);
   }));
 }
 
@@ -3106,7 +3155,7 @@ document.getElementById('btn-vv-punteggi-csv').addEventListener('click', () => {
   const ctx = vvStudentiCorrenti();
   if (!ctx || !ctx.stu.length || !vvState.esercizi.length) return;
   const esHeaders = vvState.esercizi.map((_, i) => `Es. ${i + 1} %`);
-  const righe = [['Alunno', 'Data', ...esHeaders, 'Voto'].join(';')];
+  const righe = [['Alunno', 'Data', ...esHeaders, 'Voto %', 'Voto griglia'].join(';')];
   ctx.stu.forEach(s => {
     const pcts = vvState.percentuali[s.id] || {};
     const voto = vvVotoPercentuali(s);
@@ -3114,6 +3163,7 @@ document.getElementById('btn-vv-punteggi-csv').addEventListener('click', () => {
       `${s.cognome} ${s.nome}`, fmtData(vvDataOf(s)),
       ...vvState.esercizi.map(e => pcts[e.id] ?? ''),
       voto != null ? fmt(voto) : '',
+      (v => v != null ? fmt(v) : '')(vvVotoGriglia(s)),
     ].join(';'));
   });
   downloadBlob('﻿' + righe.join('\r\n'), vvCsvFilename('punteggi-esercizi', ctx.classe), 'text/csv;charset=utf-8');
@@ -3125,7 +3175,7 @@ document.getElementById('btn-vv-griglia-csv').addEventListener('click', () => {
   const ctx = vvStudentiCorrenti();
   if (!ctx || !ctx.stu.length || !vvState.esercizi.length) return;
   const esHeaders = vvState.esercizi.flatMap((_, i) => [`Es. ${i + 1} A`, `Es. ${i + 1} B`, `Es. ${i + 1} C`, `Es. ${i + 1} Totale`]);
-  const righe = [['Alunno', ...esHeaders, 'Voto'].join(';')];
+  const righe = [['Alunno', ...esHeaders, 'Voto %', 'Voto griglia'].join(';')];
   ctx.stu.forEach(s => {
     const voto = vvVotoGriglia(s);
     const cols = vvState.esercizi.flatMap(e => {
@@ -3133,33 +3183,28 @@ document.getElementById('btn-vv-griglia-csv').addEventListener('click', () => {
       const somma = vvSommaGrigliaEs(s, e.id);
       return [g.a ?? '', g.b ?? '', g.c ?? '', somma != null ? fmt(vvSommaEsPunti(somma, e.max)) : ''];
     });
-    righe.push([`${s.cognome} ${s.nome}`, ...cols, voto != null ? fmt(voto) : ''].join(';'));
+    const vp = vvVotoPercentuali(s);
+    righe.push([`${s.cognome} ${s.nome}`, ...cols, vp != null ? fmt(vp) : '', voto != null ? fmt(voto) : ''].join(';'));
   });
   downloadBlob('﻿' + righe.join('\r\n'), vvCsvFilename('griglia-valutazione', ctx.classe), 'text/csv;charset=utf-8');
 });
 
+// Converti: dalla vista attiva all'altra (percentuali → griglia oppure
+// griglia → percentuali), ricalcolando tutti gli alunni in quella direzione
 document.getElementById('vv-converti').addEventListener('click', () => {
-  const target = classeDetailTarget();
-  if (target.mode !== 'single') return;
-  const { anno, classe } = target;
-  const stu = state.students.filter(s => s.anni?.[anno]?.classe === classe);
+  const ctx = vvStudentiCorrenti();
+  if (!ctx) return;
+  const daPct = vvView === 'pct';
   let n = 0;
-  stu.forEach(s => {
-    const pcts = vvState.percentuali[s.id];
-    if (!pcts) return;
-    vvState.esercizi.forEach(e => {
-      const pct = parseFloat(pcts[e.id]);
-      if (!Number.isFinite(pct)) return; // esercizio non valutato per questo alunno: lascialo com'è
-      (vvState.griglia[s.id] ||= {})[e.id] = {
-        a: Math.round((pct / 100 * 4) * 2) / 2,
-        b: Math.round((pct / 100 * 4) * 2) / 2,
-        c: Math.round((pct / 100 * 2) * 4) / 4,
-      };
-      n++;
-    });
-  });
-  if (!n) { alert('Inserisci prima almeno una percentuale nella tabella "Punteggi esercizi".'); return; }
-  renderVVGrigliaTable(stu.sort((a, b) => `${a.cognome} ${a.nome}`.localeCompare(`${b.cognome} ${b.nome}`)));
+  ctx.stu.forEach(s => vvState.esercizi.forEach(e => {
+    const src = daPct ? vvState.percentuali[s.id]?.[e.id] : vvSommaGrigliaEs(s, e.id);
+    if (src === '' || src == null) return; // esercizio non valutato: lascialo com'è
+    if (daPct) vvGrigliaFromPct(s.id, e.id); else vvPctFromGriglia(s.id, e.id);
+    n++;
+  }));
+  if (!n) { alert(daPct ? 'Inserisci prima almeno una percentuale.' : 'Inserisci prima almeno un valore nella griglia.'); return; }
+  vvView = daPct ? 'griglia' : 'pct';
+  renderVVGrid();
 });
 
 async function saveVerifica() {
