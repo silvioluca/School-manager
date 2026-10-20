@@ -26,6 +26,7 @@ const state = {
   todoSelected: new Set(), // id to-do selezionati nell'elenco
   bmSelected: new Set(),   // id alunno selezionati in Bonus/Malus
   materialeSelected: new Set(), // id materiale selezionati nell'elenco
+  adGradesSelected: new Set(), // id voto selezionati nella Scheda alunno (anno aperto)
   reportMateria: 'all',    // filtro materia nella sezione Report
   reportAlunno: 'all',     // filtro alunno nella sezione Report
   filtroDa: '',            // filtro periodo-da (YYYY-MM-DD, '' = nessun limite): Voti, Lezioni, Compiti, Report
@@ -43,7 +44,7 @@ const state = {
   lezRefDate: null,        // data di riferimento (YYYY-MM-DD) per le viste settimana/calendario
   orarioConfigId: null,    // id dell'orario mostrato/modificato nella vista Orario (più orario per anno)
   raggruppa: {             // "Raggruppa" per vista: booleano (solo classe) ovunque
-    voti: false, alunni: false, bes: false, compiti: false, colloqui: false,
+    voti: false, alunni: false, bes: false, compiti: false, colloqui: false, appuntamenti: false, uscite: false,
     // eccetto lezioni (prototipo Notion): null oppure 'classe'|'materia'|'giorno'|'ora'
     lezioni: null,
     // Materiale: null oppure 'categoria'|'argomento'
@@ -358,6 +359,31 @@ function fmtData(iso) {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : (iso || '');
 }
 function escHtml(s) { return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+
+// Avviso temporaneo in basso a destra con "Annulla": per le azioni immediate
+// senza conferma (es. eliminazione in Bonus/Malus), un clic sbagliato si
+// recupera nei secondi successivi. Un nuovo avviso sostituisce il precedente.
+let undoToastTimer = null;
+function showUndoToast(msg, onUndo, ms = 6000) {
+  let el = document.getElementById('undo-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'undo-toast';
+    el.className = 'undo-toast hidden';
+    document.body.appendChild(el);
+  }
+  el.innerHTML = `<span>${escHtml(msg)}</span>${onUndo ? '<button type="button" class="btn-link">Annulla</button>' : ''}`;
+  el.classList.remove('hidden');
+  clearTimeout(undoToastTimer);
+  const hide = () => el.classList.add('hidden');
+  undoToastTimer = setTimeout(hide, ms);
+  if (!onUndo) return; // solo avviso, niente "Annulla"
+  el.querySelector('button').addEventListener('click', async () => {
+    clearTimeout(undoToastTimer);
+    hide();
+    try { await onUndo(); } catch (err) { alert('Errore durante il ripristino: ' + err.message); }
+  });
+}
 
 // Collega un salvataggio asincrono a un pulsante ignorando i clic ripetuti
 // finché il precedente non è finito: senza, un doppio clic durante l'attesa
@@ -4117,9 +4143,17 @@ function wireBonusMalusRows() {
     if (item) {
       const s = state.students.find(x => x.id === item.dataset.sid);
       if (!s) return;
-      DB.removeBonusMalus(s, item.dataset.id);
-      try { await DB.put(s); } catch (err) { alert('Errore durante l\'eliminazione: ' + err.message); }
+      const removed = (s.bonusMalus || []).find(b => b.id === item.dataset.id);
+      if (!removed) return;
+      DB.removeBonusMalus(s, removed.id);
+      try { await DB.put(s); } catch (err) { alert('Errore durante l\'eliminazione: ' + err.message); return; }
       bmRefreshRow(s.id);
+      const t = BM_TIPI[removed.tipo];
+      showUndoToast(`${t ? t.label : 'Elemento'} eliminat${removed.tipo === 'stella' ? 'a' : 'o'} · ${s.cognome} ${s.nome}`, async () => {
+        (s.bonusMalus ||= []).push(removed); // stesso id e data originale
+        await DB.put(s);
+        bmRefreshRow(s.id);
+      });
       return;
     }
     const row = e.target.closest('tr[data-sid]');
@@ -4612,11 +4646,23 @@ function renderAppuntamenti() {
   const allSel = rows.length > 0 && rows.every(({ anno, a }) => state.appuntamentiSelected.has(anno + '|' + a.id));
   selAllBtn.classList.toggle('active', allSel);
   selAllBtn.title = allSel ? 'Deseleziona tutto' : 'Seleziona tutto';
-  if (!rows.length) { wrap.innerHTML = ''; panel.classList.add('hidden'); return; }
-  panel.classList.remove('hidden');
-  wrap.innerHTML = `<table class="voti-table"><thead><tr>${thead}</tr></thead><tbody>${rows.map(appuntamentoRowHtml).join('')}</tbody></table>`;
-  wrap.querySelectorAll('.name-open').forEach(td => td.addEventListener('click', e => { e.stopPropagation(); openItemNote('appuntamento', td.dataset.anno, td.dataset.id); }));
-  wrap.querySelectorAll('tr[data-key]').forEach(row => row.addEventListener('click', e => {
+  syncRaggruppaBtn('appuntamenti');
+  const groupsWrap = document.getElementById('appuntamenti-groups');
+  if (!rows.length) { wrap.innerHTML = ''; panel.classList.add('hidden'); groupsWrap.classList.add('hidden'); groupsWrap.innerHTML = ''; return; }
+  let container;
+  if (state.raggruppa.appuntamenti) {
+    panel.classList.add('hidden');
+    groupsWrap.classList.remove('hidden');
+    groupsWrap.innerHTML = groupedTablePanels(rows, ({ a }) => a.classe || '', thead, appuntamentoRowHtml);
+    container = groupsWrap;
+  } else {
+    groupsWrap.classList.add('hidden'); groupsWrap.innerHTML = '';
+    panel.classList.remove('hidden');
+    wrap.innerHTML = `<table class="voti-table"><thead><tr>${thead}</tr></thead><tbody>${rows.map(appuntamentoRowHtml).join('')}</tbody></table>`;
+    container = wrap;
+  }
+  container.querySelectorAll('.name-open').forEach(td => td.addEventListener('click', e => { e.stopPropagation(); openItemNote('appuntamento', td.dataset.anno, td.dataset.id); }));
+  container.querySelectorAll('tr[data-key]').forEach(row => row.addEventListener('click', e => {
     if (e.target.closest('.grade-meet') || e.target.closest('.name-open')) return;
     const key = row.dataset.key;
     if (state.appuntamentiSelected.has(key)) state.appuntamentiSelected.delete(key);
@@ -4808,10 +4854,23 @@ function renderUscite() {
   const allSel = rows.length > 0 && rows.every(({ anno, u }) => state.usciteSelected.has(anno + '|' + u.id));
   selAllBtn.classList.toggle('active', allSel);
   selAllBtn.title = allSel ? 'Deseleziona tutto' : 'Seleziona tutto';
-  if (!rows.length) { wrap.innerHTML = ''; panel.classList.add('hidden'); return; }
-  panel.classList.remove('hidden');
-  wrap.innerHTML = `<table class="voti-table"><thead><tr>${thead}</tr></thead><tbody>${rows.map(uscitaRowHtml).join('')}</tbody></table>`;
-  wrap.querySelectorAll('tr[data-key]').forEach(row => row.addEventListener('click', e => {
+  syncRaggruppaBtn('uscite');
+  const groupsWrap = document.getElementById('uscite-groups');
+  if (!rows.length) { wrap.innerHTML = ''; panel.classList.add('hidden'); groupsWrap.classList.add('hidden'); groupsWrap.innerHTML = ''; return; }
+  let container;
+  if (state.raggruppa.uscite) {
+    panel.classList.add('hidden');
+    groupsWrap.classList.remove('hidden');
+    // Un'uscita con più classi va nel gruppo "3A, 4B" (non duplicata in ognuna)
+    groupsWrap.innerHTML = groupedTablePanels(rows, ({ u }) => (u.classi || []).join(', '), thead, uscitaRowHtml);
+    container = groupsWrap;
+  } else {
+    groupsWrap.classList.add('hidden'); groupsWrap.innerHTML = '';
+    panel.classList.remove('hidden');
+    wrap.innerHTML = `<table class="voti-table"><thead><tr>${thead}</tr></thead><tbody>${rows.map(uscitaRowHtml).join('')}</tbody></table>`;
+    container = wrap;
+  }
+  container.querySelectorAll('tr[data-key]').forEach(row => row.addEventListener('click', () => {
     const key = row.dataset.key;
     if (state.usciteSelected.has(key)) state.usciteSelected.delete(key);
     else state.usciteSelected.add(key);
@@ -6229,19 +6288,13 @@ document.getElementById('btn-todo-elimina-bulk').addEventListener('click', async
 function todoCardHtml(t) {
   const scadCls = todoScadCls(t);
   const idx = TODO_STATI.findIndex(s => s.key === t.stato);
-  return `<div class="todo-card" draggable="true" data-id="${t.id}">
+  return `<div class="todo-card ${state.todoSelected.has(t.id) ? 'selected' : ''}" draggable="true" data-id="${t.id}">
       <div class="todo-card-title">${escHtml(t.titolo)}</div>
       ${t.descrizione ? `<div class="todo-card-desc">${escHtml(t.descrizione)}</div>` : ''}
       ${t.scadenza ? `<div class="todo-card-scad ${scadCls}">${fmtData(t.scadenza)}</div>` : ''}
       <div class="todo-card-actions">
         <button class="pager-arrow" data-todo-prev="${t.id}" ${idx <= 0 ? 'disabled' : ''} title="Sposta indietro">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-        </button>
-        <button class="grade-edit" data-edit-todo="${t.id}" title="Modifica">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        </button>
-        <button class="grade-rm" data-rm-todo="${t.id}" title="Elimina">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
         <button class="pager-arrow" data-todo-next="${t.id}" ${idx >= TODO_STATI.length - 1 ? 'disabled' : ''} title="Sposta avanti">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
@@ -6276,11 +6329,15 @@ function renderTodoKanban(list) {
     </div>`;
   }).join('');
 
-  grid.querySelectorAll('[data-edit-todo]').forEach(b => b.addEventListener('click', () => openTodoModal(list.find(x => x.id === b.dataset.editTodo))));
-  grid.querySelectorAll('[data-rm-todo]').forEach(b => b.addEventListener('click', async () => {
-    if (!confirm('Eliminare questo to-do?')) return;
-    try { await DB.saveTodos(DB.getTodos().filter(x => x.id !== b.dataset.rmTodo)); renderAll(); }
-    catch (err) { alert('Errore durante l\'eliminazione: ' + err.message); }
+  // Clic sulla scheda → la seleziona (modifica/elimina dalla barra di
+  // gruppo, come nelle tabelle); le frecce restano per spostare di stato
+  grid.querySelectorAll('.todo-card').forEach(card => card.addEventListener('click', e => {
+    if (e.target.closest('.pager-arrow')) return;
+    const id = card.dataset.id;
+    if (state.todoSelected.has(id)) state.todoSelected.delete(id);
+    else state.todoSelected.add(id);
+    card.classList.toggle('selected');
+    updateTodoBulkBar();
   }));
   grid.querySelectorAll('[data-todo-prev]').forEach(b => b.addEventListener('click', () => moveTodoStato(b.dataset.todoPrev, -1)));
   grid.querySelectorAll('[data-todo-next]').forEach(b => b.addEventListener('click', () => moveTodoStato(b.dataset.todoNext, 1)));
@@ -6428,6 +6485,41 @@ async function generateLezioniForSlot(anno, config, slot) {
     for (const l of arr) { await DB.addLezione(dAnno, l); count++; }
   }
   return count;
+}
+// Una cella d'orario cambiata (o liberata) si riflette sulle lezioni future
+// che ne derivano: da oggi in poi, nelle date in cui vale proprio questo
+// orario, stesso giorno e stessa ora, e solo se la lezione ha ancora la
+// classe/materia di prima (una lezione già cambiata a mano, es. una
+// sostituzione, non si tocca). Le lezioni passate restano com'erano.
+// Con la cella liberata si eliminano solo le future ancora vuote (senza
+// argomento, compiti o note): quelle già compilate restano.
+async function propagaCellaOrario(anno, configId, oldSlot, newSlot) {
+  const out = { aggiornate: 0, rimosse: 0 };
+  if (!oldSlot) return out;
+  if (newSlot && newSlot.classe === oldSlot.classe && newSlot.materia === oldSlot.materia) return out;
+  const oggi = todayISO();
+  const future = DB.getLezioni(anno).filter(l =>
+    l.data >= oggi
+    && isoDayGiorno(l.data) === oldSlot.giorno && (+l.ora || 0) === oldSlot.ora
+    && (l.classe || '') === (oldSlot.classe || '') && (l.materia || '') === (oldSlot.materia || '')
+    && orarioConfigForDate(anno, l.data)?.id === configId);
+  if (!future.length) return out;
+  if (newSlot) {
+    await DB.updateLezioniBulk(anno, future.map(l => l.id), { classe: newSlot.classe, materia: newSlot.materia });
+    out.aggiornate = future.length;
+  } else {
+    const vuote = future.filter(l => !l.argomento && !l.compiti && !l.note);
+    if (vuote.length) await DB.removeLezioniBulk(vuote.map(l => [anno, l.id]));
+    out.rimosse = vuote.length;
+  }
+  return out;
+}
+function propagaMessaggio({ aggiornate = 0, rimosse = 0 }, aggiunte = 0) {
+  const parti = [];
+  if (aggiornate) parti.push(`${aggiornate} lezion${aggiornate === 1 ? 'e futura aggiornata' : 'i future aggiornate'}`);
+  if (rimosse) parti.push(`${rimosse} lezion${rimosse === 1 ? 'e futura vuota rimossa' : 'i future vuote rimosse'}`);
+  if (aggiunte) parti.push(`${aggiunte} lezion${aggiunte === 1 ? 'e aggiunta' : 'i aggiunte'}`);
+  return parti.length ? `Orario salvato: ${parti.join(', ')}.` : '';
 }
 async function generateLezioniForConfig(anno, config) {
   let total = 0;
@@ -6608,7 +6700,7 @@ document.getElementById('orario-slot-cancel').addEventListener('click', closeOra
 onSave('orario-slot-save', async () => {
   if (!orarioSlotCtx) return;
   const { anno, configId } = orarioSlotCtx;
-  let newSlot = null;
+  let newSlot = null, oldSlot = null;
   try {
     if (orarioSlotCtx.type === 'periodo') {
       const { ora } = orarioSlotCtx;
@@ -6619,21 +6711,25 @@ onSave('orario-slot-save', async () => {
       const { giorno, ora } = orarioSlotCtx;
       const materia = document.getElementById('os-materia').value.trim();
       const classe = document.getElementById('os-classe').value.trim();
-      const slots = DB.getOrarioConfig(anno, configId).slots.filter(sl => !(sl.giorno === giorno && sl.ora === ora));
+      const allSlots = DB.getOrarioConfig(anno, configId).slots;
+      oldSlot = allSlots.find(sl => sl.giorno === giorno && sl.ora === ora) || null;
+      const slots = allSlots.filter(sl => !(sl.giorno === giorno && sl.ora === ora));
       if (materia || classe) { newSlot = { id: DB.uid(), giorno, ora, materia, classe }; slots.push(newSlot); }
       await DB.setOrarioConfigSlots(anno, configId, slots);
     }
     closeOrarioSlot();
     renderOrario();
   } catch (err) { alert('Errore durante il salvataggio: ' + err.message); return; }
-  // La cella appena compilata genera (senza duplicare) le lezioni per tutte
-  // le sue occorrenze nel periodo di validità dell'orario — un eventuale
-  // errore qui non deve nascondere il salvataggio (già avvenuto) sopra
-  if (newSlot) {
+  // Le lezioni future della cella seguono il cambio; poi la cella genera
+  // (senza duplicare) quelle mancanti nel periodo di validità dell'orario —
+  // un eventuale errore qui non deve nascondere il salvataggio già avvenuto
+  if (oldSlot || newSlot) {
     try {
-      const count = await generateLezioniForSlot(anno, DB.getOrarioConfig(anno, configId), newSlot);
-      if (count) { renderAll(); alert(`Aggiunte ${count} lezioni nel periodo di validità dell'orario.`); }
-    } catch (err) { alert("Cella salvata, ma errore nella generazione delle lezioni: " + err.message); }
+      const prop = await propagaCellaOrario(anno, configId, oldSlot, newSlot);
+      const count = newSlot ? await generateLezioniForSlot(anno, DB.getOrarioConfig(anno, configId), newSlot) : 0;
+      const msg = propagaMessaggio(prop, count);
+      if (msg) { renderAll(); showUndoToast(msg, null, 7000); }
+    } catch (err) { alert("Cella salvata, ma errore nell'aggiornamento delle lezioni: " + err.message); }
   }
 });
 document.getElementById('orario-slot-delete').addEventListener('click', async () => {
@@ -6645,8 +6741,14 @@ document.getElementById('orario-slot-delete').addEventListener('click', async ()
       await DB.setOrarioConfigPeriodo(anno, configId, ora, { inizio: '', fine: '' });
     } else {
       const { giorno, ora } = orarioSlotCtx;
-      const slots = DB.getOrarioConfig(anno, configId).slots.filter(sl => !(sl.giorno === giorno && sl.ora === ora));
-      await DB.setOrarioConfigSlots(anno, configId, slots);
+      const allSlots = DB.getOrarioConfig(anno, configId).slots;
+      const oldSlot = allSlots.find(sl => sl.giorno === giorno && sl.ora === ora) || null;
+      await DB.setOrarioConfigSlots(anno, configId, allSlots.filter(sl => sl !== oldSlot));
+      closeOrarioSlot();
+      renderOrario();
+      const msg = propagaMessaggio(await propagaCellaOrario(anno, configId, oldSlot, null));
+      if (msg) { renderAll(); showUndoToast(msg, null, 7000); }
+      return;
     }
     closeOrarioSlot();
     renderOrario();
@@ -6992,7 +7094,7 @@ function reportOreInterazioniItems() {
   }));
   const anniC = state.year !== 'all' ? [state.year] : [...new Set([...allYears(), ...DB.getColloquiAnni()])];
   anniC.forEach(anno => DB.getColloqui(anno).forEach(c => {
-    if (!inPeriodo(c.data)) return;
+    if (!inPeriodo(c.data) || !colloquioCompilato(c)) return; // slot mai prenotati: non svolti
     const s = state.students.find(x => x.id === c.studenteId);
     const classe = s ? classeOf(s, anno) : '';
     if (state.klass !== 'all' && classe !== state.klass) return;
@@ -7413,16 +7515,19 @@ function renderStudentSummary() {
 function renderGrades() {
   const s = state.students.find(x => x.id === state.openId);
   const wrap = document.getElementById('grades-wrap');
-  if (!s || !state.openYear || !s.anni[state.openYear]) { wrap.innerHTML = '<p class="stat-sub">Nessun voto per questo anno.</p>'; return; }
+  if (!s || !state.openYear || !s.anni[state.openYear]) { wrap.innerHTML = '<p class="stat-sub">Nessun voto per questo anno.</p>'; state.adGradesSelected.clear(); updateAdGradesBulkBar(); return; }
   const materie = s.anni[state.openYear].materie || {};
   const names = Object.keys(materie).sort();
-  if (!names.length) { wrap.innerHTML = '<p class="stat-sub">Nessun voto per questo anno.</p>'; return; }
+  if (!names.length) { wrap.innerHTML = '<p class="stat-sub">Nessun voto per questo anno.</p>'; state.adGradesSelected.clear(); updateAdGradesBulkBar(); return; }
 
+  const visibili = new Set(names.flatMap(m => materie[m].map(g => g.id)));
+  [...state.adGradesSelected].forEach(id => { if (!visibili.has(id)) state.adGradesSelected.delete(id); });
+  updateAdGradesBulkBar();
   wrap.innerHTML = names.map(materia => {
     const arr = [...materie[materia]].sort((a, b) => (a.data > b.data ? 1 : -1));
     const m = avg(arr.map(g => g.voto));
     const rows = arr.map(g => `
-      <div class="grade-row">
+      <div class="grade-row ${state.adGradesSelected.has(g.id) ? 'selected' : ''}" data-gid="${g.id}" data-mat="${escHtml(materia)}">
         <div class="grade-voto ${gradeClass(g.voto)}">${fmt(g.voto)}</div>
         <div class="grade-info">
           <div class="grade-desc">${escHtml(g.desc || materia)}</div>
@@ -7430,12 +7535,6 @@ function renderGrades() {
           ${g.commento ? `<div class="grade-commento">${escHtml(g.commento)}</div>` : ''}
         </div>
         <span class="tipo-badge">${escHtml(g.tipo)}</span>
-        <button class="grade-edit" data-edit="${g.id}" data-mat="${escHtml(materia)}" title="Modifica voto">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        </button>
-        <button class="grade-rm" data-rm="${g.id}" data-mat="${escHtml(materia)}" title="Elimina voto">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
       </div>`).join('');
     return `
       <div class="subj-block">
@@ -7447,19 +7546,44 @@ function renderGrades() {
       </div>`;
   }).join('');
 
-  wrap.querySelectorAll('.grade-rm').forEach(btn => btn.addEventListener('click', async () => {
-    const s2 = state.students.find(x => x.id === state.openId);
-    DB.removeGrade(s2, state.openYear, btn.dataset.mat, btn.dataset.rm);
-    await DB.put(s2);
-    // l'anno potrebbe essere svanito se era l'ultimo voto
-    const years = Object.keys(s2.anni || {}).sort();
-    if (!s2.anni[state.openYear]) state.openYear = years[years.length - 1] || null;
-    refreshOpen();
-  }));
-  wrap.querySelectorAll('.grade-edit').forEach(btn => btn.addEventListener('click', () => {
-    openForm('grade', { editing: { sid: state.openId, anno: state.openYear, materia: btn.dataset.mat, gradeId: btn.dataset.edit } });
+  // Clic sul voto → selezione; modifica/elimina dalla barra di gruppo
+  wrap.querySelectorAll('.grade-row').forEach(row => row.addEventListener('click', () => {
+    const gid = row.dataset.gid;
+    if (state.adGradesSelected.has(gid)) state.adGradesSelected.delete(gid);
+    else state.adGradesSelected.add(gid);
+    row.classList.toggle('selected');
+    updateAdGradesBulkBar();
   }));
 }
+function updateAdGradesBulkBar() {
+  const bar = document.getElementById('ad-grades-bulk-bar');
+  const n = state.adGradesSelected.size;
+  bar.classList.toggle('hidden', n === 0 || state.view !== 'alunno-detail');
+  syncBulkEdit(bar, n);
+  document.getElementById('ad-grades-sel-count').textContent = `${n} vot${n === 1 ? 'o' : 'i'} selezionat${n === 1 ? 'o' : 'i'}`;
+}
+// Materia di un voto dell'anno aperto (il voto è identificato dal solo id)
+function adGradeMateria(s, gid) {
+  return Object.entries(s.anni?.[state.openYear]?.materie || {}).find(([, arr]) => arr.some(g => g.id === gid))?.[0];
+}
+document.getElementById('btn-ad-grades-modifica-bulk').addEventListener('click', () => {
+  const [gid] = [...state.adGradesSelected];
+  const s = state.students.find(x => x.id === state.openId);
+  const materia = s && adGradeMateria(s, gid);
+  if (materia) openForm('grade', { editing: { sid: s.id, anno: state.openYear, materia, gradeId: gid } });
+});
+document.getElementById('btn-ad-grades-elimina-bulk').addEventListener('click', async () => {
+  const s = state.students.find(x => x.id === state.openId);
+  const ids = [...state.adGradesSelected];
+  if (!s || !ids.length) return;
+  if (!confirm(`Eliminare ${ids.length === 1 ? 'il voto selezionato' : ids.length + ' voti'}?`)) return;
+  ids.forEach(gid => { const m = adGradeMateria(s, gid); if (m) DB.removeGrade(s, state.openYear, m, gid); });
+  try {
+    await DB.put(s);
+    state.adGradesSelected.clear();
+    refreshOpen();
+  } catch (err) { alert('Errore durante l\'eliminazione: ' + err.message); }
+});
 
 // "AAAA-MM-GG" → "GG/MM" per le etichette dell'asse
 function fmtDateShort(iso) {
@@ -8647,6 +8771,23 @@ document.getElementById('import-file').addEventListener('change', async e => {
     alert('File non valido: ' + err.message);
   }
   e.target.value = '';
+});
+
+// ── Conflitto con un altro dispositivo (vedi _writePack in db.js) ──────
+// La scrittura è stata rifiutata per non sovrascrivere modifiche fatte
+// altrove: si ricarica tutto da Firestore. Il messaggio d'errore lo mostra
+// già chi stava salvando; qui un avviso in più per i salvataggi "silenziosi".
+let conflictReloading = false;
+window.addEventListener('sm-conflict', async () => {
+  if (conflictReloading) return;
+  conflictReloading = true;
+  try {
+    state.students = await DB.reload();
+    renderAll();
+    showUndoToast('Dati aggiornati da un altro dispositivo: ricaricati.', null, 8000);
+  } catch (err) {
+    alert('Impossibile ricaricare i dati: ' + err.message);
+  } finally { conflictReloading = false; }
 });
 
 // ── Auth + avvio ────────────────────────────────────────────────────

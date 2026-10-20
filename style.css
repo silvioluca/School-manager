@@ -607,7 +607,10 @@ header {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 12px; border-radius: 6px;
   background: var(--bg3); border: 1px solid var(--border-idle);
+  cursor: pointer; transition: border-color var(--transition), background var(--transition);
 }
+.grade-row:hover { border-color: var(--border-hover); }
+.grade-row.selected { border-color: var(--accent-blue); background: rgba(91,155,255,0.12); }
 .grade-voto {
   font-family: 'Space Mono', monospace; font-weight: 700; font-size: 15px;
   width: 44px; text-align: center; flex-shrink: 0;
@@ -1726,6 +1729,7 @@ textarea.vf-input { resize: vertical; min-height: 64px; }
   padding: 10px 12px; cursor: grab; transition: opacity var(--transition);
 }
 .todo-card.dragging { opacity: 0.35; cursor: grabbing; }
+.todo-card.selected { border-color: var(--accent-blue); background: rgba(91,155,255,0.12); }
 .todo-card-title { font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
 .todo-card-desc { font-size: 11.5px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4; }
 .todo-card-scad { font-family: 'Space Mono', monospace; font-size: 10.5px; margin-top: 6px; }
@@ -1752,3 +1756,15 @@ textarea.vf-input { resize: vertical; min-height: 64px; }
 .tag-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
 /* Selettore tipo nei modali "nuovo" (lezione/colloquio/appuntamento/uscita) */
 .new-kind-picker { flex-wrap: wrap; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--border-idle); }
+
+/* Avviso con "Annulla" (vedi showUndoToast): in basso a destra, per non
+   coprire la barra delle azioni di gruppo che sta al centro */
+.undo-toast {
+  position: fixed; right: 24px; bottom: 24px; z-index: 70;
+  display: flex; align-items: center; gap: 14px;
+  background: var(--bg2); border: 1px solid var(--border-idle); border-radius: 6px;
+  padding: 10px 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+  font-size: 12.5px; color: var(--text-primary);
+}
+.undo-toast .btn-link { font-size: 12.5px; }
+@media (max-width: 640px) { .undo-toast { left: 16px; right: 16px; bottom: 84px; justify-content: space-between; } }

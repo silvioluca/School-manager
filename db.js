@@ -121,6 +121,42 @@ const DB = (() => {
 
   function packs() { return _db().collection(_base() + '/packs'); }
 
+  // ── Controllo conflitti fra dispositivi ───────────────────────────
+  // Ogni pacchetto ha un numero di versione `v`, incrementato a ogni
+  // scrittura. Si scrive solo se su Firestore c'è ancora la versione letta
+  // (transazione): se nel frattempo un altro dispositivo l'ha cambiato, la
+  // scrittura viene rifiutata invece di cancellarne silenziosamente le
+  // modifiche, e l'app ricarica i dati aggiornati (evento "sm-conflict").
+  let _versions = {};   // docId → versione nota (letta o scritta per ultima)
+  let _writeQueue = Promise.resolve(); // scritture in fila: mai due insieme sullo stesso pacchetto
+  function _enqueue(fn) {
+    const p = _writeQueue.then(fn);
+    _writeQueue = p.catch(() => {});
+    return p;
+  }
+  function _conflict(id) {
+    const err = new Error('i dati sono stati modificati nel frattempo da un altro dispositivo. Ho ricaricato la versione aggiornata: ripeti l\'ultima modifica.');
+    err.code = 'sm-conflict';
+    err.pack = id;
+    window.dispatchEvent(new CustomEvent('sm-conflict', { detail: { pack: id } }));
+    return err;
+  }
+  // Scrive (json) o elimina (json === null) un pacchetto; force salta il
+  // controllo (ripristino da backup "sostituisci")
+  function _writePack(id, json, { force = false } = {}) {
+    return _enqueue(() => _db().runTransaction(async t => {
+      const ref = packs().doc(id);
+      const snap = await t.get(ref);
+      const cur = snap.exists ? (snap.data().v || 0) : 0;
+      if (!force && cur !== (_versions[id] || 0)) throw _conflict(id);
+      if (json === null) { if (snap.exists) t.delete(ref); return 0; }
+      t.set(ref, { json, v: cur + 1 });
+      return cur + 1;
+    }).then(v => { _versions[id] = v; }));
+  }
+  function _putPack(id, json, opts) { return _writePack(id, json, opts); }
+  function _dropPack(id, opts) { return _writePack(id, null, opts); }
+
   function annoDocId(anno) { return 'a-' + String(anno).replace(/\//g, '_'); }
   function annoFromDocId(id) { return id.slice(2).replace(/_/g, '/'); }
   function lezDocId(anno) { return 'lez-' + String(anno).replace(/\//g, '_'); }
@@ -188,11 +224,12 @@ const DB = (() => {
       _uscite = p.uscite || {};
       _todos = p.todos || [];
       _materialeUser = p.materialeUser || { added: [], edited: {}, deleted: [] };
+      _versions = p.versions || {};
       return true;
     } catch { return false; }
   }
   function _cacheSave() {
-    try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ students: _cache, loaded: _loaded, classiMeta: _classiMeta, coordinamento: _coordinamento, progettazione: _progettazione, orario: _orario, lezioni: _lezioni, rubriche: _rubriche, colloqui: _colloqui, appuntamenti: _appuntamenti, uscite: _uscite, todos: _todos, materialeUser: _materialeUser })); } catch {}
+    try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ students: _cache, loaded: _loaded, classiMeta: _classiMeta, coordinamento: _coordinamento, progettazione: _progettazione, orario: _orario, lezioni: _lezioni, rubriche: _rubriche, colloqui: _colloqui, appuntamenti: _appuntamenti, uscite: _uscite, todos: _todos, materialeUser: _materialeUser, versions: _versions })); } catch {}
   }
   function _cacheDrop() {
     try { sessionStorage.removeItem(CACHE_KEY); } catch {}
@@ -203,17 +240,17 @@ const DB = (() => {
     const arr = (_cache || []).map(anagOf);
     const json = JSON.stringify(arr);
     if (json.length > 900000) console.warn(`Anagrafica vicina al limite di 1 MB (${json.length} byte)`);
-    await packs().doc('anagrafica').set({ json });
+    await _putPack('anagrafica', json);
   }
 
   async function _saveAnno(anno) {
     const map = {};
     (_cache || []).forEach(s => { if (s.anni && s.anni[anno]) map[s.id] = s.anni[anno]; });
-    const ref = packs().doc(annoDocId(anno));
-    if (!Object.keys(map).length) { await ref.delete(); return; }
+    const id = annoDocId(anno);
+    if (!Object.keys(map).length) { await _dropPack(id); return; }
     const json = JSON.stringify(map);
     if (json.length > 900000) console.warn(`Pacchetto ${anno} vicino al limite di 1 MB (${json.length} byte)`);
-    await ref.set({ json });
+    await _putPack(id, json);
   }
 
   // Registra lo stato salvato di un alunno (per i diff successivi)
@@ -307,7 +344,7 @@ const DB = (() => {
       Object.values(_classiMeta).forEach(v => {
         if (v.istituto === undefined) { v.istituto = v.indirizzo || ''; v.indirizzo = ''; migrated = true; }
       });
-      if (migrated) await packs().doc('classi-meta').set({ json: JSON.stringify(_classiMeta) });
+      if (migrated) await _putPack('classi-meta', JSON.stringify(_classiMeta), { force: true });
     } else {
       // Migrazione dal vecchio pack 'materie' (solo array, senza istituto/indirizzo)
       const legacyMateria = snap.docs.find(d => d.id === 'materie');
@@ -315,8 +352,8 @@ const DB = (() => {
       if (legacyMateria) {
         const old = JSON.parse(legacyMateria.data().json);
         Object.entries(old).forEach(([key, materie]) => { _classiMeta[key] = { istituto: '', indirizzo: '', materie }; });
-        await packs().doc('classi-meta').set({ json: JSON.stringify(_classiMeta) });
-        await packs().doc('materie').delete();
+        await _putPack('classi-meta', JSON.stringify(_classiMeta), { force: true });
+        await _dropPack('materie', { force: true });
       }
     }
 
@@ -358,6 +395,8 @@ const DB = (() => {
     const materialeUserDoc = snap.docs.find(d => d.id === 'materiale-user');
     _materialeUser = materialeUserDoc ? JSON.parse(materialeUserDoc.data().json) : { added: [], edited: {}, deleted: [] };
 
+    _versions = {};
+    snap.docs.forEach(d => { _versions[d.id] = d.data().v || 0; });
     _cache = list;
     _loaded = {};
     list.forEach(_markLoaded);
@@ -388,7 +427,7 @@ const DB = (() => {
     const hasContent = (istituto && istituto.trim()) || (indirizzo && indirizzo.trim()) || (materie && materie.length);
     if (hasContent) _classiMeta[key] = { istituto: istituto || '', indirizzo: indirizzo || '', materie: materie || [] };
     else delete _classiMeta[key];
-    await packs().doc('classi-meta').set({ json: JSON.stringify(_classiMeta) });
+    await _putPack('classi-meta', JSON.stringify(_classiMeta));
     _cacheDrop();
   }
 
@@ -410,7 +449,7 @@ const DB = (() => {
     const hasContent = data.tables && data.tables.length;
     if (hasContent) _coordinamento[key] = { tables: data.tables };
     else delete _coordinamento[key];
-    await packs().doc('coordinamento').set({ json: JSON.stringify(_coordinamento) });
+    await _putPack('coordinamento', JSON.stringify(_coordinamento));
     _cacheDrop();
   }
 
@@ -426,7 +465,7 @@ const DB = (() => {
     const progetti = data.progetti || '', educazioneCivica = data.educazioneCivica || '', clil = data.clil || '';
     if (progetti || educazioneCivica || clil) _progettazione[key] = { progetti, educazioneCivica, clil };
     else delete _progettazione[key];
-    await packs().doc('progettazione').set({ json: JSON.stringify(_progettazione) });
+    await _putPack('progettazione', JSON.stringify(_progettazione));
     _cacheDrop();
   }
 
@@ -468,7 +507,7 @@ const DB = (() => {
     return configs.find(c => c.id === id) || null;
   }
   async function _saveOrario() {
-    await packs().doc('orario').set({ json: JSON.stringify(_orario) });
+    await _putPack('orario', JSON.stringify(_orario));
   }
   async function addOrarioConfig(anno, { titolo, dataInizio, dataFine }) {
     if (!_cache) await all();
@@ -535,11 +574,11 @@ const DB = (() => {
   function getLezioni(anno) { return _lezioni[anno] || []; }
   async function _saveLezioni(anno) {
     const arr = _lezioni[anno] || [];
-    const ref = packs().doc(lezDocId(anno));
-    if (!arr.length) { await ref.delete(); return; }
+    const id = lezDocId(anno);
+    if (!arr.length) { await _dropPack(id); return; }
     const json = JSON.stringify(arr);
     if (json.length > 900000) console.warn(`Lezioni ${anno} vicino al limite di 1 MB (${json.length} byte)`);
-    await ref.set({ json });
+    await _putPack(id, json);
   }
   function _newLezione(l) {
     return {
@@ -603,6 +642,15 @@ const DB = (() => {
     }
     _cacheDrop();
   }
+  // Stessi campi su più lezioni di un anno, un solo salvataggio (es. cella
+  // d'orario cambiata → lezioni future di quella cella)
+  async function updateLezioniBulk(anno, ids, attrs) {
+    if (!_cache) await all();
+    const set = new Set(ids);
+    (_lezioni[anno] || []).forEach(l => { if (set.has(l.id)) Object.assign(l, attrs); });
+    await _saveLezioni(anno);
+    _cacheDrop();
+  }
   // Azzera compiti/scadenza su più lezioni in blocco, un solo salvataggio per anno
   async function clearCompitiBulk(keys) {
     if (!_cache) await all();
@@ -619,7 +667,7 @@ const DB = (() => {
   async function saveRubriche(list) {
     if (!_cache) await all();
     _rubriche = list;
-    await packs().doc('rubriche').set({ json: JSON.stringify(_rubriche) });
+    await _putPack('rubriche', JSON.stringify(_rubriche));
     _cacheDrop();
   }
 
@@ -628,7 +676,7 @@ const DB = (() => {
   async function saveTodos(list) {
     if (!_cache) await all();
     _todos = list;
-    await packs().doc('todos').set({ json: JSON.stringify(_todos) });
+    await _putPack('todos', JSON.stringify(_todos));
     _cacheDrop();
   }
 
@@ -637,7 +685,7 @@ const DB = (() => {
   async function saveMaterialeUser(obj) {
     if (!_cache) await all();
     _materialeUser = obj;
-    await packs().doc('materiale-user').set({ json: JSON.stringify(_materialeUser) });
+    await _putPack('materiale-user', JSON.stringify(_materialeUser));
     _cacheDrop();
   }
 
@@ -650,9 +698,9 @@ const DB = (() => {
   function getColloquiAnni() { return Object.keys(_colloqui); }
   async function _saveColloqui(anno) {
     const arr = _colloqui[anno] || [];
-    const ref = packs().doc(colDocId(anno));
-    if (!arr.length) { await ref.delete(); return; }
-    await ref.set({ json: JSON.stringify(arr) });
+    const id = colDocId(anno);
+    if (!arr.length) { await _dropPack(id); return; }
+    await _putPack(id, JSON.stringify(arr));
   }
   function _newColloquio(c) {
     return {
@@ -704,9 +752,9 @@ const DB = (() => {
   function getAppuntamentiAnni() { return Object.keys(_appuntamenti); }
   async function _saveAppuntamenti(anno) {
     const arr = _appuntamenti[anno] || [];
-    const ref = packs().doc(apptDocId(anno));
-    if (!arr.length) { await ref.delete(); return; }
-    await ref.set({ json: JSON.stringify(arr) });
+    const id = apptDocId(anno);
+    if (!arr.length) { await _dropPack(id); return; }
+    await _putPack(id, JSON.stringify(arr));
   }
   function _newAppuntamento(a) {
     return {
@@ -747,9 +795,9 @@ const DB = (() => {
   function getUsciteAnni() { return Object.keys(_uscite); }
   async function _saveUscite(anno) {
     const arr = _uscite[anno] || [];
-    const ref = packs().doc(uscDocId(anno));
-    if (!arr.length) { await ref.delete(); return; }
-    await ref.set({ json: JSON.stringify(arr) });
+    const id = uscDocId(anno);
+    if (!arr.length) { await _dropPack(id); return; }
+    await _putPack(id, JSON.stringify(arr));
   }
   function _newUscita(u) {
     return {
@@ -831,17 +879,17 @@ const DB = (() => {
     const key = classeMetaKey(anno, classe);
     if (_classiMeta[key]) {
       delete _classiMeta[key];
-      await packs().doc('classi-meta').set({ json: JSON.stringify(_classiMeta) });
+      await _putPack('classi-meta', JSON.stringify(_classiMeta));
       _cacheDrop();
     }
     if (_coordinamento[key]) {
       delete _coordinamento[key];
-      await packs().doc('coordinamento').set({ json: JSON.stringify(_coordinamento) });
+      await _putPack('coordinamento', JSON.stringify(_coordinamento));
       _cacheDrop();
     }
     if (_progettazione[key]) {
       delete _progettazione[key];
-      await packs().doc('progettazione').set({ json: JSON.stringify(_progettazione) });
+      await _putPack('progettazione', JSON.stringify(_progettazione));
       _cacheDrop();
     }
     return affected.length;
@@ -859,7 +907,7 @@ const DB = (() => {
       .filter(s => !nonPromossiIds.has(s.id));
     affected.forEach(s => { enroll(s, nextAnno, nextClasse); });
     _carryClasseMeta(anno, classe, nextAnno, nextClasse);
-    await packs().doc('classi-meta').set({ json: JSON.stringify(_classiMeta) });
+    await _putPack('classi-meta', JSON.stringify(_classiMeta));
     await putMany(affected);
     return affected.length;
   }
@@ -882,7 +930,15 @@ const DB = (() => {
       await batch.commit();
     }
     _loaded = {};
+    _versions = {};
     _cacheDrop();
+  }
+
+  // Ricarica tutto da Firestore (dopo un conflitto): scarta la cache
+  async function reload() {
+    _cacheDrop();
+    _cache = null;
+    return all();
   }
 
   // ── Helper documento ──────────────────────────────────────────────
@@ -1070,7 +1126,7 @@ const DB = (() => {
     for (const [id, value] of Object.entries(docs)) {
       const json = JSON.stringify(value);
       if (json.length > 900000) console.warn(`Pacchetto ${id} vicino al limite di 1 MB (${json.length} byte)`);
-      await packs().doc(id).set({ json });
+      await _putPack(id, json, { force: true });
     }
     return new Set(Object.keys(docs));
   }
@@ -1108,6 +1164,7 @@ const DB = (() => {
       const batch = _db().batch();
       stale.slice(i, i + 450).forEach(d => batch.delete(d.ref));
       await batch.commit();
+      stale.slice(i, i + 450).forEach(d => { delete _versions[d.id]; });
     }
     _loaded = {};
     list.forEach(_markLoaded);
@@ -1136,9 +1193,9 @@ const DB = (() => {
     await perAnno(_uscite, b.uscite, _saveUscite);
 
     if (_mergeById(_rubriche, b.rubriche))
-      await packs().doc('rubriche').set({ json: JSON.stringify(_rubriche) });
+      await _putPack('rubriche', JSON.stringify(_rubriche));
     if (_mergeById(_todos, b.todos))
-      await packs().doc('todos').set({ json: JSON.stringify(_todos) });
+      await _putPack('todos', JSON.stringify(_todos));
 
     if (b.materialeUser) {
       // "deleted" del backup NON viene unito: nasconderebbe elementi oggi visibili
@@ -1147,7 +1204,7 @@ const DB = (() => {
       Object.entries(b.materialeUser.edited || {}).forEach(([id, v]) => {
         if (!(mu.edited ||= {})[id]) { mu.edited[id] = v; n++; }
       });
-      if (n) await packs().doc('materiale-user').set({ json: JSON.stringify(mu) });
+      if (n) await _putPack('materiale-user', JSON.stringify(mu));
     }
 
     if (b.orario) {
@@ -1167,7 +1224,7 @@ const DB = (() => {
         const cur = _coordFromRaw(_coordinamento[key]);
         if (_mergeById(cur.tables, _coordFromRaw(raw).tables)) { _coordinamento[key] = cur; n++; }
       });
-      if (n) await packs().doc('coordinamento').set({ json: JSON.stringify(_coordinamento) });
+      if (n) await _putPack('coordinamento', JSON.stringify(_coordinamento));
     }
 
     if (b.progettazione) {
@@ -1176,7 +1233,7 @@ const DB = (() => {
         if (!_progettazione[key]) { _progettazione[key] = v; n++; }
         else if (_fillEmpty(_progettazione[key], v)) n++;
       });
-      if (n) await packs().doc('progettazione').set({ json: JSON.stringify(_progettazione) });
+      if (n) await _putPack('progettazione', JSON.stringify(_progettazione));
     }
 
     if (b.classiMeta) {
@@ -1188,7 +1245,7 @@ const DB = (() => {
         const materie = [...new Set([...(cur.materie || []), ...(v.materie || [])])];
         if (materie.length !== (cur.materie || []).length) { cur.materie = materie; n++; }
       });
-      if (n) await packs().doc('classi-meta').set({ json: JSON.stringify(_classiMeta) });
+      if (n) await _putPack('classi-meta', JSON.stringify(_classiMeta));
     }
 
     return { nuovi, aggiornati };
@@ -1207,7 +1264,7 @@ const DB = (() => {
   }
 
   return {
-    all, get, put, putMany, remove, clear, uid,
+    all, reload, get, put, putMany, remove, clear, uid,
     newStudent, enroll, addGrade, removeGrade, editGrade, addBonusMalus, removeBonusMalus,
     currentAnno, classeCorrente,
     getClasseMeta, materieOf, indirizzoOf, istitutoOf, materieMapAll, allIstituti, setClasseMeta,
@@ -1217,7 +1274,7 @@ const DB = (() => {
     getOrarioConfigs, getOrarioConfig, addOrarioConfig, updateOrarioConfigMeta, removeOrarioConfig,
     setOrarioConfigSlots, setOrarioConfigPeriodo, setOrarioConfigSabato,
     getLezioni, addLezione, updateLezione, removeLezione, addLezioniBulk,
-    removeLezioniBulk, clearCompitiBulk,
+    removeLezioniBulk, clearCompitiBulk, updateLezioniBulk,
     getRubriche, saveRubriche,
     getColloqui, getColloquiAnni, addColloquio, updateColloquio, removeColloquio, addColloquiBulk,
     getAppuntamenti, getAppuntamentiAnni, addAppuntamento, updateAppuntamento, removeAppuntamento,

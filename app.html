@@ -990,11 +990,6 @@
         </button>
       </div>
 
-      <div id="todo-kanban-view">
-        <div class="todo-kanban" id="todo-kanban-grid"></div>
-      </div>
-
-      <div id="todo-elenco-view" class="hidden">
         <div class="floating-bulk-bar hidden" id="todo-bulk-bar">
           <span class="toolbar-info" id="todo-sel-count"></span>
           <button class="btn-icon" id="btn-todo-select-all" title="Seleziona tutto">
@@ -1007,6 +1002,12 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
           </button>
         </div>
+
+      <div id="todo-kanban-view">
+        <div class="todo-kanban" id="todo-kanban-grid"></div>
+      </div>
+
+      <div id="todo-elenco-view" class="hidden">
         <div class="panel table-panel">
           <div class="table-wrap" id="todo-elenco-wrap"></div>
         </div>
@@ -1098,6 +1099,9 @@
     <section id="view-appuntamenti" class="hidden">
       <div class="view-toolbar notion-toolbar">
         <span class="toolbar-info" id="appuntamenti-count"></span>
+        <button class="btn-icon btn-raggruppa" data-rg="appuntamenti" title="Raggruppa per classe">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+        </button>
         <button class="btn-icon btn-icon-primary" id="btn-add-appuntamento" title="Nuovo appuntamento">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
@@ -1117,6 +1121,7 @@
       <div class="panel table-panel">
         <div class="table-wrap" id="appuntamenti-wrap"></div>
       </div>
+      <div id="appuntamenti-groups" class="hidden"></div>
       <div class="empty-state hidden" id="appuntamenti-empty">
         <div class="empty-icon">
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -1131,6 +1136,9 @@
     <section id="view-uscite" class="hidden">
       <div class="view-toolbar notion-toolbar">
         <span class="toolbar-info" id="uscite-count"></span>
+        <button class="btn-icon btn-raggruppa" data-rg="uscite" title="Raggruppa per classe">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+        </button>
         <button class="btn-icon btn-icon-primary" id="btn-add-uscita" title="Nuova uscita didattica">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
@@ -1150,6 +1158,7 @@
       <div class="panel table-panel">
         <div class="table-wrap" id="uscite-wrap"></div>
       </div>
+      <div id="uscite-groups" class="hidden"></div>
       <div class="empty-state hidden" id="uscite-empty">
         <div class="empty-icon">
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>
@@ -1377,6 +1386,15 @@
     <!-- Scheda alunno: pagina dedicata (non modale), sempre in sidebar,
          guidata dal selettore Alunno nei filtri in alto -->
     <section id="view-alunno-detail" class="hidden">
+      <div class="floating-bulk-bar hidden" id="ad-grades-bulk-bar">
+        <span class="toolbar-info" id="ad-grades-sel-count"></span>
+        <button class="btn-icon bulk-edit-btn hidden" id="btn-ad-grades-modifica-bulk" title="Modifica">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+        <button class="btn-icon btn-icon-danger" id="btn-ad-grades-elimina-bulk" title="Elimina selezionati">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        </button>
+      </div>
       <div class="empty-state hidden" id="ad-empty">
         <div class="empty-icon">
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
