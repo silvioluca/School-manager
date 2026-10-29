@@ -19,9 +19,7 @@ const state = {
   lezioniSelected: new Set(), // chiavi "anno|id" selezionate nell'elenco lezioni
   compitiSelected: new Set(), // chiavi "anno|id" selezionate nella sezione compiti
   besSelected: new Set(),  // id alunno selezionati nell'elenco BES
-  colloquiSelected: new Set(), // chiavi "anno|id" selezionate nell'elenco colloqui
-  appuntamentiSelected: new Set(), // chiavi "anno|id" selezionate nell'elenco appuntamenti
-  usciteSelected: new Set(), // chiavi "anno|id" selezionate nell'elenco uscite didattiche
+  eventiSelected: new Set(), // chiavi "tipo|anno|id" selezionate nell'Elenco del Calendario
   rubricheSelected: new Set(), // id rubrica selezionati nell'elenco rubriche
   todoSelected: new Set(), // id to-do selezionati nell'elenco
   bmSelected: new Set(),   // id alunno selezionati in Bonus/Malus
@@ -38,13 +36,13 @@ const state = {
   besView: 'schede',       // 'schede' | 'elenco'
   rubricheView: 'schede',  // 'schede' | 'elenco'
   todoView: 'kanban',      // 'kanban' | 'elenco'
-  calView: 'settimana',    // 'settimana' | 'mese' | 'agenda' — vista attiva nella sezione Calendario
+  calView: 'settimana',    // 'settimana' | 'mese' | 'agenda' | 'elenco' — vista attiva nella sezione Calendario
   calRefDate: null,        // data di riferimento (YYYY-MM-DD) per Calendario, indipendente da lezRefDate
   calFilters: { colloqui: true, appuntamenti: true, uscite: true }, // tipi visibili in Calendario (mai le lezioni: hanno la propria vista)
   lezRefDate: null,        // data di riferimento (YYYY-MM-DD) per le viste settimana/calendario
   orarioConfigId: null,    // id dell'orario mostrato/modificato nella vista Orario (più orario per anno)
   raggruppa: {             // "Raggruppa" per vista: booleano (solo classe) ovunque
-    voti: false, alunni: false, bes: false, compiti: false, colloqui: false, appuntamenti: false, uscite: false,
+    voti: false, alunni: false, bes: false, compiti: false, eventi: false,
     // eccetto lezioni (prototipo Notion): null oppure 'classe'|'materia'|'giorno'|'ora'
     lezioni: null,
     // Materiale: null oppure 'categoria'|'argomento'
@@ -65,7 +63,7 @@ const state = {
 };
 
 const charts = {};       // istanze Chart.js per distruzione/ricreazione
-const ALL_VIEWS = ['dashboard', 'alunni', 'bes', 'classi', 'voti', 'verifiche', 'rubriche', 'bonusmalus', 'lezioni', 'compiti', 'todo', 'orario', 'colloqui', 'appuntamenti', 'uscite', 'calendario', 'report', 'report-ore', 'report-os', 'materiale', 'alunno-detail', 'classe-detail', 'coordinamento', 'progettazione', 'item-note'];
+const ALL_VIEWS = ['dashboard', 'alunni', 'bes', 'classi', 'voti', 'verifiche', 'rubriche', 'bonusmalus', 'lezioni', 'compiti', 'todo', 'orario', 'calendario', 'report', 'report-ore', 'report-os', 'materiale', 'alunno-detail', 'classe-detail', 'coordinamento', 'progettazione', 'item-note'];
 const VIEW_TITLES = {
   dashboard: 'Dashboard', alunni: 'Elenco alunni', classi: 'Elenco classi', voti: 'Elenco voti', lezioni: 'Lezioni', compiti: 'Compiti', orario: 'Orario', report: 'Report voti',
   'alunno-detail': 'Scheda alunno', 'classe-detail': 'Scheda classe', verifiche: 'Verifiche', rubriche: 'Rubriche valutative', bonusmalus: 'Bonus/Malus',
@@ -856,7 +854,7 @@ function renderView() {
     dashboard: renderDashboard, alunni: renderAlunni, classi: renderClassi, voti: renderVoti, report: renderReport,
     lezioni: renderLezioni, compiti: renderCompiti, orario: renderOrario, verifiche: renderVerifiche, rubriche: renderRubriche,
     bonusmalus: renderBonusMalus,
-    bes: renderBes, colloqui: renderColloqui, appuntamenti: renderAppuntamenti, uscite: renderUscite, calendario: renderCalendario, todo: renderTodo,
+    bes: renderBes, calendario: renderCalendario, todo: renderTodo,
     'alunno-detail': renderAlunnoDetailPage, 'classe-detail': renderClasseDetailPage, 'item-note': renderItemNote, 'report-ore': renderReportOre,
     'report-os': renderReportOS, materiale: renderMateriale, coordinamento: renderCoordinamento, progettazione: renderProgettazione,
   };
@@ -4305,104 +4303,6 @@ function colloquiRows() {
   anni.forEach(anno => DB.getColloqui(anno).forEach(c => rows.push({ anno, c })));
   return rows.sort((a, b) => (a.c.data + (a.c.ora || '')).localeCompare(b.c.data + (b.c.ora || '')));
 }
-function renderColloqui() {
-  renderColloquioSlots();
-  const rows = colloquiRows();
-  document.getElementById('colloqui-count').textContent = `${rows.length} colloqui${rows.length === 1 ? 'o' : ''}`;
-  document.getElementById('colloqui-empty').classList.toggle('hidden', !!rows.length);
-  syncRaggruppaBtn('colloqui');
-  const colloquioRowHtml = ({ anno, c }) => {
-    const s = state.students.find(x => x.id === c.studenteId);
-    const classe = s ? (classeOf(s, anno) || '') : '';
-    const note = richToPlainText(c.note);
-    const key = anno + '|' + c.id;
-    return `<tr class="row-selectable ${state.colloquiSelected.has(key) ? 'selected' : ''}" data-anno="${escHtml(anno)}" data-id="${c.id}" data-key="${escHtml(key)}">
-            <td class="row-drag" title="Seleziona"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="8" cy="6" r="1.6"/><circle cx="8" cy="12" r="1.6"/><circle cx="8" cy="18" r="1.6"/><circle cx="16" cy="6" r="1.6"/><circle cx="16" cy="12" r="1.6"/><circle cx="16" cy="18" r="1.6"/></svg></td>
-            <td class="vt-mono">${fmtData(c.data)}</td>
-            <td class="vt-mono">${escHtml(c.ora || '—')}</td>
-            <td class="name-open" data-anno="${escHtml(anno)}" data-id="${c.id}" title="Apri">${s ? escHtml(s.cognome) + ' ' + escHtml(s.nome) : '<span class="stat-sub">—</span>'}</td>
-            <td>${escHtml(classe || '—')}</td>
-            <td>${escHtml(c.partecipanti || '—')}</td>
-            <td class="stat-sub" title="${escHtml(note)}">${escHtml(note.length > 40 ? note.slice(0, 40) + '…' : note)}</td>
-            <td class="vt-actions">
-              ${c.meetLink ? `<a class="grade-meet" href="${escHtml(c.meetLink)}" target="_blank" rel="noopener" title="Apri link Meet" onclick="event.stopPropagation()">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10l5-3v10l-5-3"/><rect x="1" y="6" width="14" height="12" rx="2"/></svg>
-              </a>` : ''}
-            </td>
-          </tr>`;
-  };
-  const colloquiWrap = document.getElementById('colloqui-wrap');
-  const colloquiPanel = colloquiWrap.closest('.table-panel');
-  const colloquiGroupsWrap = document.getElementById('colloqui-groups');
-  const colloquiThead = `<th></th><th>Data</th><th>Ora</th><th>Alunno</th><th>Classe</th><th>Partecipanti</th><th>Note</th><th></th>`;
-  const visibleKeys = new Set(rows.map(({ anno, c }) => anno + '|' + c.id));
-  [...state.colloquiSelected].forEach(k => { if (!visibleKeys.has(k)) state.colloquiSelected.delete(k); });
-  updateColloquiBulkBar();
-  const colloquiAllSel = rows.length > 0 && rows.every(({ anno, c }) => state.colloquiSelected.has(anno + '|' + c.id));
-  const colloquiSelAllBtn = document.getElementById('btn-colloqui-select-all');
-  colloquiSelAllBtn.classList.toggle('active', colloquiAllSel);
-  colloquiSelAllBtn.title = colloquiAllSel ? 'Deseleziona tutto' : 'Seleziona tutto';
-  if (!rows.length) {
-    colloquiWrap.innerHTML = ''; colloquiPanel.classList.add('hidden');
-    colloquiGroupsWrap.classList.add('hidden'); colloquiGroupsWrap.innerHTML = '';
-    return;
-  }
-  let activeContainer;
-  if (state.raggruppa.colloqui) {
-    colloquiPanel.classList.add('hidden');
-    colloquiGroupsWrap.classList.remove('hidden');
-    colloquiGroupsWrap.innerHTML = groupedTablePanels(rows, ({ anno, c }) => {
-      const s = state.students.find(x => x.id === c.studenteId);
-      return s ? classeOf(s, anno) : '';
-    }, colloquiThead, colloquioRowHtml);
-    activeContainer = colloquiGroupsWrap;
-  } else {
-    colloquiPanel.classList.remove('hidden');
-    colloquiGroupsWrap.classList.add('hidden'); colloquiGroupsWrap.innerHTML = '';
-    colloquiWrap.innerHTML = `<table class="voti-table"><thead><tr>${colloquiThead}</tr></thead><tbody>${rows.map(colloquioRowHtml).join('')}</tbody></table>`;
-    activeContainer = colloquiWrap;
-  }
-  activeContainer.querySelectorAll('.name-open').forEach(td => td.addEventListener('click', e => { e.stopPropagation(); openItemNote('colloquio', td.dataset.anno, td.dataset.id); }));
-  activeContainer.querySelectorAll('tr[data-key]').forEach(row => row.addEventListener('click', e => {
-    if (e.target.closest('.grade-meet') || e.target.closest('.name-open')) return;
-    const key = row.dataset.key;
-    if (state.colloquiSelected.has(key)) state.colloquiSelected.delete(key);
-    else state.colloquiSelected.add(key);
-    row.classList.toggle('selected');
-    updateColloquiBulkBar();
-    const stillAll = rows.length > 0 && rows.every(({ anno, c }) => state.colloquiSelected.has(anno + '|' + c.id));
-    const selAllBtn = document.getElementById('btn-colloqui-select-all');
-    selAllBtn.classList.toggle('active', stillAll);
-    selAllBtn.title = stillAll ? 'Deseleziona tutto' : 'Seleziona tutto';
-  }));
-}
-function updateColloquiBulkBar() {
-  const bar = document.getElementById('colloqui-bulk-bar');
-  const n = state.colloquiSelected.size;
-  bar.classList.toggle('hidden', n === 0);
-  syncBulkEdit(bar, n);
-  document.getElementById('colloqui-sel-count').textContent = `${n} colloqui${n === 1 ? 'o' : ''} selezionat${n === 1 ? 'o' : 'i'}`;
-}
-document.getElementById('btn-colloqui-elimina-bulk').addEventListener('click', async () => {
-  const keys = [...state.colloquiSelected].map(k => k.split('|'));
-  if (!keys.length) return;
-  if (!confirm(`Eliminare ${keys.length} colloqui${keys.length === 1 ? 'o' : ''}? L'azione è irreversibile.`)) return;
-  try {
-    const gcalIds = keys.map(([anno, id]) => DB.getColloqui(anno).find(x => x.id === id)?.gcalEventId).filter(Boolean);
-    for (const [anno, id] of keys) await DB.removeColloquio(anno, id);
-    state.colloquiSelected.clear();
-    renderAll();
-    gcalIds.forEach(gid => GCal.deleteEvent(gid));
-  } catch (err) { alert('Errore durante l\'eliminazione: ' + err.message); }
-});
-document.getElementById('btn-colloqui-select-all').addEventListener('click', () => {
-  const keys = colloquiRows().map(({ anno, c }) => anno + '|' + c.id);
-  const allSel = keys.length > 0 && keys.every(k => state.colloquiSelected.has(k));
-  if (allSel) keys.forEach(k => state.colloquiSelected.delete(k));
-  else keys.forEach(k => state.colloquiSelected.add(k));
-  renderColloqui();
-});
-
 // ── Editor di testo ricco (Colloqui/Appuntamenti): titolo, elenchi puntati/
 //    numerati, checkbox — stile Notion. Usa document.execCommand: deprecato
 //    ma pienamente supportato nei browser Chromium (unico target di
@@ -4538,7 +4438,6 @@ function openColloquioNew(defaults = {}) {
   document.getElementById('colloquio-delete').classList.add('hidden');
   document.getElementById('colloquio-overlay').classList.remove('hidden');
 }
-document.getElementById('btn-add-colloquio').addEventListener('click', () => openColloquioNew());
 function closeColloquio() { document.getElementById('colloquio-overlay').classList.add('hidden'); colloquioCtx = null; }
 document.getElementById('colloquio-close').addEventListener('click', closeColloquio);
 document.getElementById('colloquio-cancel').addEventListener('click', closeColloquio);
@@ -4611,96 +4510,6 @@ function appuntamentiRows() {
   anni.forEach(anno => DB.getAppuntamenti(anno).forEach(a => rows.push({ anno, a })));
   return rows.sort((x, y) => (x.a.data + (x.a.ora || '')).localeCompare(y.a.data + (y.a.ora || '')));
 }
-function renderAppuntamenti() {
-  const rows = appuntamentiRows();
-  document.getElementById('appuntamenti-count').textContent = `${rows.length} appuntament${rows.length === 1 ? 'o' : 'i'}`;
-  document.getElementById('appuntamenti-empty').classList.toggle('hidden', !!rows.length);
-  const appuntamentoRowHtml = ({ anno, a }) => {
-    const ora = a.oraFine ? `${a.ora || '—'}–${a.oraFine}` : (a.ora || '—');
-    const oggetto = a.oggetto || TIPI_APPUNTAMENTO[a.tipo] || a.tipo;
-    const oggettoShown = oggetto.length > 40 ? oggetto.slice(0, 40) + '…' : oggetto;
-    const note = richToPlainText(a.note);
-    return `<tr class="row-selectable ${state.appuntamentiSelected.has(anno + '|' + a.id) ? 'selected' : ''}" data-anno="${escHtml(anno)}" data-id="${a.id}" data-key="${escHtml(anno + '|' + a.id)}">
-            <td class="row-drag" title="Seleziona"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="8" cy="6" r="1.6"/><circle cx="8" cy="12" r="1.6"/><circle cx="8" cy="18" r="1.6"/><circle cx="16" cy="6" r="1.6"/><circle cx="16" cy="12" r="1.6"/><circle cx="16" cy="18" r="1.6"/></svg></td>
-            <td class="vt-mono">${fmtData(a.data)}</td>
-            <td class="vt-mono">${escHtml(ora)}</td>
-            <td><span class="tag-pill" style="--pill-color:${TIPI_APPUNTAMENTO_COLORS[a.tipo] || colorOfName(a.tipo)}">${escHtml(TIPI_APPUNTAMENTO[a.tipo] || a.tipo)}</span></td>
-            <td>${a.modalita === 'online' ? 'Online' : 'In presenza'}</td>
-            <td>${a.classe ? `<span class="classe-chip" style="--cls-color:${colorOfClasse(a.classe)}">${escHtml(a.classe)}</span>` : '<span class="stat-sub">—</span>'}</td>
-            <td class="col-hide-m">${escHtml(a.luogo || '—')}</td>
-            <td class="name-open" data-anno="${escHtml(anno)}" data-id="${a.id}" title="${escHtml([oggetto, note].filter(Boolean).join(' — '))}">${escHtml(oggettoShown)}</td>
-            <td class="vt-actions">
-              ${a.meetLink ? `<a class="grade-meet" href="${escHtml(a.meetLink)}" target="_blank" rel="noopener" title="Apri link Meet" onclick="event.stopPropagation()">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10l5-3v10l-5-3"/><rect x="1" y="6" width="14" height="12" rx="2"/></svg>
-              </a>` : ''}
-            </td>
-          </tr>`;
-  };
-  const wrap = document.getElementById('appuntamenti-wrap');
-  const panel = wrap.closest('.table-panel');
-  const thead = `<th></th><th>Data</th><th>Ora</th><th>Tipo</th><th>Modalità</th><th>Classe</th><th class="col-hide-m">Luogo</th><th>Oggetto</th><th></th>`;
-  const visibleKeys = new Set(rows.map(({ anno, a }) => anno + '|' + a.id));
-  [...state.appuntamentiSelected].forEach(k => { if (!visibleKeys.has(k)) state.appuntamentiSelected.delete(k); });
-  updateAppuntamentiBulkBar();
-  const selAllBtn = document.getElementById('btn-appuntamenti-select-all');
-  const allSel = rows.length > 0 && rows.every(({ anno, a }) => state.appuntamentiSelected.has(anno + '|' + a.id));
-  selAllBtn.classList.toggle('active', allSel);
-  selAllBtn.title = allSel ? 'Deseleziona tutto' : 'Seleziona tutto';
-  syncRaggruppaBtn('appuntamenti');
-  const groupsWrap = document.getElementById('appuntamenti-groups');
-  if (!rows.length) { wrap.innerHTML = ''; panel.classList.add('hidden'); groupsWrap.classList.add('hidden'); groupsWrap.innerHTML = ''; return; }
-  let container;
-  if (state.raggruppa.appuntamenti) {
-    panel.classList.add('hidden');
-    groupsWrap.classList.remove('hidden');
-    groupsWrap.innerHTML = groupedTablePanels(rows, ({ a }) => a.classe || '', thead, appuntamentoRowHtml);
-    container = groupsWrap;
-  } else {
-    groupsWrap.classList.add('hidden'); groupsWrap.innerHTML = '';
-    panel.classList.remove('hidden');
-    wrap.innerHTML = `<table class="voti-table"><thead><tr>${thead}</tr></thead><tbody>${rows.map(appuntamentoRowHtml).join('')}</tbody></table>`;
-    container = wrap;
-  }
-  container.querySelectorAll('.name-open').forEach(td => td.addEventListener('click', e => { e.stopPropagation(); openItemNote('appuntamento', td.dataset.anno, td.dataset.id); }));
-  container.querySelectorAll('tr[data-key]').forEach(row => row.addEventListener('click', e => {
-    if (e.target.closest('.grade-meet') || e.target.closest('.name-open')) return;
-    const key = row.dataset.key;
-    if (state.appuntamentiSelected.has(key)) state.appuntamentiSelected.delete(key);
-    else state.appuntamentiSelected.add(key);
-    row.classList.toggle('selected');
-    updateAppuntamentiBulkBar();
-    const stillAll = rows.length > 0 && rows.every(({ anno, a }) => state.appuntamentiSelected.has(anno + '|' + a.id));
-    selAllBtn.classList.toggle('active', stillAll);
-    selAllBtn.title = stillAll ? 'Deseleziona tutto' : 'Seleziona tutto';
-  }));
-}
-function updateAppuntamentiBulkBar() {
-  const bar = document.getElementById('appuntamenti-bulk-bar');
-  const n = state.appuntamentiSelected.size;
-  bar.classList.toggle('hidden', n === 0);
-  syncBulkEdit(bar, n);
-  document.getElementById('appuntamenti-sel-count').textContent = `${n} appuntament${n === 1 ? 'o' : 'i'} selezionat${n === 1 ? 'o' : 'i'}`;
-}
-document.getElementById('btn-appuntamenti-elimina-bulk').addEventListener('click', async () => {
-  const keys = [...state.appuntamentiSelected].map(k => k.split('|'));
-  if (!keys.length) return;
-  if (!confirm(`Eliminare ${keys.length} appuntament${keys.length === 1 ? 'o' : 'i'}? L'azione è irreversibile.`)) return;
-  try {
-    const gcalIds = keys.map(([anno, id]) => DB.getAppuntamenti(anno).find(x => x.id === id)?.gcalEventId).filter(Boolean);
-    for (const [anno, id] of keys) await DB.removeAppuntamento(anno, id);
-    state.appuntamentiSelected.clear();
-    renderAll();
-    gcalIds.forEach(gid => GCal.deleteEvent(gid));
-  } catch (err) { alert('Errore durante l\'eliminazione: ' + err.message); }
-});
-document.getElementById('btn-appuntamenti-select-all').addEventListener('click', () => {
-  const keys = appuntamentiRows().map(({ anno, a }) => anno + '|' + a.id);
-  const allSel = keys.length > 0 && keys.every(k => state.appuntamentiSelected.has(k));
-  if (allSel) keys.forEach(k => state.appuntamentiSelected.delete(k));
-  else keys.forEach(k => state.appuntamentiSelected.add(k));
-  renderAppuntamenti();
-});
-
 function appuntamentoFormBody(a) {
   return `
     <div class="vf-row">
@@ -4752,7 +4561,6 @@ function openAppuntamentoNew(defaults = {}) {
   document.getElementById('appuntamento-delete').classList.add('hidden');
   document.getElementById('appuntamento-overlay').classList.remove('hidden');
 }
-document.getElementById('btn-add-appuntamento').addEventListener('click', () => openAppuntamentoNew());
 function closeAppuntamento() { document.getElementById('appuntamento-overlay').classList.add('hidden'); appuntamentoCtx = null; }
 document.getElementById('appuntamento-close').addEventListener('click', closeAppuntamento);
 document.getElementById('appuntamento-cancel').addEventListener('click', closeAppuntamento);
@@ -4829,83 +4637,6 @@ function usciteRows() {
   anni.forEach(anno => DB.getUscite(anno).forEach(u => rows.push({ anno, u })));
   return rows.sort((x, y) => (x.u.data + (x.u.oraInizio || '')).localeCompare(y.u.data + (y.u.oraInizio || '')));
 }
-function renderUscite() {
-  const rows = usciteRows();
-  document.getElementById('uscite-count').textContent = `${rows.length} uscit${rows.length === 1 ? 'a' : 'e'}`;
-  document.getElementById('uscite-empty').classList.toggle('hidden', !!rows.length);
-  const uscitaRowHtml = ({ anno, u }) => {
-    const ora = u.oraFine ? `${u.oraInizio || '—'}–${u.oraFine}` : (u.oraInizio || '—');
-    return `<tr class="row-selectable ${state.usciteSelected.has(anno + '|' + u.id) ? 'selected' : ''}" data-anno="${escHtml(anno)}" data-id="${u.id}" data-key="${escHtml(anno + '|' + u.id)}">
-            <td class="row-drag" title="Seleziona"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="8" cy="6" r="1.6"/><circle cx="8" cy="12" r="1.6"/><circle cx="8" cy="18" r="1.6"/><circle cx="16" cy="6" r="1.6"/><circle cx="16" cy="12" r="1.6"/><circle cx="16" cy="18" r="1.6"/></svg></td>
-            <td class="vt-mono">${fmtData(u.data)}</td>
-            <td class="vt-mono">${escHtml(ora)}</td>
-            <td>${escHtml((u.classi || []).join(', ') || '—')}</td>
-            <td class="col-hide-m">${escHtml(u.luogo || '—')}</td>
-            <td title="${escHtml([u.titolo, u.note].filter(Boolean).join(' — '))}">${escHtml(u.titolo || '—')}</td>
-          </tr>`;
-  };
-  const wrap = document.getElementById('uscite-wrap');
-  const panel = wrap.closest('.table-panel');
-  const thead = `<th></th><th>Giorno</th><th>Ora</th><th>Classe</th><th class="col-hide-m">Luogo</th><th>Titolo</th>`;
-  const visibleKeys = new Set(rows.map(({ anno, u }) => anno + '|' + u.id));
-  [...state.usciteSelected].forEach(k => { if (!visibleKeys.has(k)) state.usciteSelected.delete(k); });
-  updateUsciteBulkBar();
-  const selAllBtn = document.getElementById('btn-uscite-select-all');
-  const allSel = rows.length > 0 && rows.every(({ anno, u }) => state.usciteSelected.has(anno + '|' + u.id));
-  selAllBtn.classList.toggle('active', allSel);
-  selAllBtn.title = allSel ? 'Deseleziona tutto' : 'Seleziona tutto';
-  syncRaggruppaBtn('uscite');
-  const groupsWrap = document.getElementById('uscite-groups');
-  if (!rows.length) { wrap.innerHTML = ''; panel.classList.add('hidden'); groupsWrap.classList.add('hidden'); groupsWrap.innerHTML = ''; return; }
-  let container;
-  if (state.raggruppa.uscite) {
-    panel.classList.add('hidden');
-    groupsWrap.classList.remove('hidden');
-    // Un'uscita con più classi va nel gruppo "3A, 4B" (non duplicata in ognuna)
-    groupsWrap.innerHTML = groupedTablePanels(rows, ({ u }) => (u.classi || []).join(', '), thead, uscitaRowHtml);
-    container = groupsWrap;
-  } else {
-    groupsWrap.classList.add('hidden'); groupsWrap.innerHTML = '';
-    panel.classList.remove('hidden');
-    wrap.innerHTML = `<table class="voti-table"><thead><tr>${thead}</tr></thead><tbody>${rows.map(uscitaRowHtml).join('')}</tbody></table>`;
-    container = wrap;
-  }
-  container.querySelectorAll('tr[data-key]').forEach(row => row.addEventListener('click', () => {
-    const key = row.dataset.key;
-    if (state.usciteSelected.has(key)) state.usciteSelected.delete(key);
-    else state.usciteSelected.add(key);
-    row.classList.toggle('selected');
-    updateUsciteBulkBar();
-    const stillAll = rows.length > 0 && rows.every(({ anno, u }) => state.usciteSelected.has(anno + '|' + u.id));
-    selAllBtn.classList.toggle('active', stillAll);
-    selAllBtn.title = stillAll ? 'Deseleziona tutto' : 'Seleziona tutto';
-  }));
-}
-function updateUsciteBulkBar() {
-  const bar = document.getElementById('uscite-bulk-bar');
-  const n = state.usciteSelected.size;
-  bar.classList.toggle('hidden', n === 0);
-  syncBulkEdit(bar, n);
-  document.getElementById('uscite-sel-count').textContent = `${n} uscit${n === 1 ? 'a' : 'e'} selezionat${n === 1 ? 'a' : 'e'}`;
-}
-document.getElementById('btn-uscite-elimina-bulk').addEventListener('click', async () => {
-  const keys = [...state.usciteSelected].map(k => k.split('|'));
-  if (!keys.length) return;
-  if (!confirm(`Eliminare ${keys.length} uscit${keys.length === 1 ? 'a' : 'e'}? L'azione è irreversibile.`)) return;
-  try {
-    for (const [anno, id] of keys) await DB.removeUscita(anno, id);
-    state.usciteSelected.clear();
-    renderAll();
-  } catch (err) { alert('Errore durante l\'eliminazione: ' + err.message); }
-});
-document.getElementById('btn-uscite-select-all').addEventListener('click', () => {
-  const keys = usciteRows().map(({ anno, u }) => anno + '|' + u.id);
-  const allSel = keys.length > 0 && keys.every(k => state.usciteSelected.has(k));
-  if (allSel) keys.forEach(k => state.usciteSelected.delete(k));
-  else keys.forEach(k => state.usciteSelected.add(k));
-  renderUscite();
-});
-
 // Classi selezionate nel modale in corso (multi-selezione a chip, non un
 // <select multiple>: più leggibile e coerente con lo stile a pillole già
 // usato altrove, es. .cal-legend-chip) — reinizializzato a ogni apertura
@@ -4959,7 +4690,6 @@ function openUscitaNew(defaults = {}) {
   document.getElementById('uscita-delete').classList.add('hidden');
   document.getElementById('uscita-overlay').classList.remove('hidden');
 }
-document.getElementById('btn-add-uscita').addEventListener('click', () => openUscitaNew());
 function closeUscita() { document.getElementById('uscita-overlay').classList.add('hidden'); uscitaCtx = null; }
 document.getElementById('uscita-close').addEventListener('click', closeUscita);
 document.getElementById('uscita-cancel').addEventListener('click', closeUscita);
@@ -5015,7 +4745,7 @@ function openItemNote(kind, anno, id) {
 }
 function backFromItemNote() {
   state.noteCtx = null;
-  state.view = state.previousView || 'colloqui';
+  state.view = state.previousView || 'calendario';
   renderView();
 }
 document.getElementById('note-back').addEventListener('click', backFromItemNote);
@@ -5541,12 +5271,170 @@ function renderCalendario() {
   document.getElementById('cal-settimana-view').classList.toggle('hidden', state.calView !== 'settimana');
   document.getElementById('cal-mese-view').classList.toggle('hidden', state.calView !== 'mese');
   document.getElementById('cal-agenda-view').classList.toggle('hidden', state.calView !== 'agenda');
+  document.getElementById('cal-elenco-view').classList.toggle('hidden', state.calView !== 'elenco');
   document.querySelectorAll('#cal-view-toggle .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.calv === state.calView));
   document.querySelectorAll('#cal-legend .cal-legend-chip').forEach(b => b.classList.toggle('active', state.calFilters[b.dataset.src]));
   if (state.calView === 'settimana') renderCalSettimana();
   else if (state.calView === 'mese') renderCalMese();
+  else if (state.calView === 'elenco') renderEventiElenco();
   else renderCalAgenda();
+  const elenco = state.calView === 'elenco';
+  document.getElementById('eventi-count').classList.toggle('hidden', !elenco);
+  document.getElementById('btn-eventi-raggruppa').classList.toggle('hidden', !elenco);
+  renderColloquioSlots(); // modale Orario di ricevimento, se aperto
 }
+
+// ── Elenco eventi: colloqui, appuntamenti e uscite in un'unica tabella ──
+// Chiave di selezione "tipo|anno|id" (l'anno contiene "/", mai "|")
+function eventoKey(tipo, anno, id) { return `${tipo}|${anno}|${id}`; }
+function eventoKeyParts(k) { const [tipo, anno, id] = k.split('|'); return { tipo, anno, id }; }
+const TIPO_EVENTO_COLOR = { colloquio: '#5b9bff', uscita: '#2ecc71' };
+// Righe normalizzate (un formato per tutti e tre i tipi), filtrate dalla
+// legenda. Qui compaiono anche gli slot di ricevimento non ancora prenotati
+// ("Libero"), che il calendario invece non mostra.
+function eventiRows() {
+  const f = state.calFilters;
+  const rows = [];
+  if (f.colloqui) colloquiRows().forEach(({ anno, c }) => {
+    const s = state.students.find(x => x.id === c.studenteId);
+    rows.push({
+      tipo: 'colloquio', anno, id: c.id, data: c.data, ora: c.ora || '',
+      tipoLabel: 'Colloquio', tipoColor: TIPO_EVENTO_COLOR.colloquio,
+      titolo: s ? `${s.cognome} ${s.nome}` : '', libero: !colloquioCompilato(c),
+      classi: s && classeOf(s, anno) ? [classeOf(s, anno)] : [],
+      dettagli: c.partecipanti || '', note: richToPlainText(c.note), meetLink: c.meetLink || '', nota: true,
+    });
+  });
+  if (f.appuntamenti) appuntamentiRows().forEach(({ anno, a }) => rows.push({
+    tipo: 'appuntamento', anno, id: a.id, data: a.data,
+    ora: a.oraFine ? `${a.ora || '—'}–${a.oraFine}` : (a.ora || ''),
+    tipoLabel: TIPI_APPUNTAMENTO[a.tipo] || a.tipo, tipoColor: TIPI_APPUNTAMENTO_COLORS[a.tipo] || colorOfName(a.tipo),
+    titolo: a.oggetto || '', classi: a.classe ? [a.classe] : [],
+    dettagli: [a.modalita === 'online' ? 'Online' : 'In presenza', a.luogo].filter(Boolean).join(' · '),
+    note: richToPlainText(a.note), meetLink: a.meetLink || '', nota: true,
+  }));
+  if (f.uscite) usciteRows().forEach(({ anno, u }) => rows.push({
+    tipo: 'uscita', anno, id: u.id, data: u.data,
+    ora: u.oraFine ? `${u.oraInizio || '—'}–${u.oraFine}` : (u.oraInizio || ''),
+    tipoLabel: 'Uscita didattica', tipoColor: TIPO_EVENTO_COLOR.uscita,
+    titolo: u.titolo || '', classi: u.classi || [], dettagli: u.luogo || '', note: u.note || '', meetLink: '', nota: false,
+  }));
+  return rows.sort((x, y) => (x.data + x.ora).localeCompare(y.data + y.ora));
+}
+const MEET_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10l5-3v10l-5-3"/><rect x="1" y="6" width="14" height="12" rx="2"/></svg>';
+function eventoRowHtml(r) {
+  const key = eventoKey(r.tipo, r.anno, r.id);
+  const titolo = r.libero ? '<span class="stat-sub">Libero</span>' : escHtml(r.titolo || '—');
+  const note = r.note.length > 40 ? r.note.slice(0, 40) + '…' : r.note;
+  return `<tr class="row-selectable ${state.eventiSelected.has(key) ? 'selected' : ''}" data-key="${escHtml(key)}">
+      <td class="row-drag" title="Seleziona"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="8" cy="6" r="1.6"/><circle cx="8" cy="12" r="1.6"/><circle cx="8" cy="18" r="1.6"/><circle cx="16" cy="6" r="1.6"/><circle cx="16" cy="12" r="1.6"/><circle cx="16" cy="18" r="1.6"/></svg></td>
+      <td class="vt-mono">${fmtData(r.data)}</td>
+      <td class="vt-mono">${escHtml(r.ora || '—')}</td>
+      <td><span class="tag-pill" style="--pill-color:${r.tipoColor}">${escHtml(r.tipoLabel)}</span></td>
+      <td ${r.nota ? `class="name-open" data-tipo="${r.tipo}" data-anno="${escHtml(r.anno)}" data-id="${r.id}" title="Apri la nota"` : ''}>${titolo}</td>
+      <td>${r.classi.length ? r.classi.map(c => `<span class="classe-chip" style="--cls-color:${colorOfClasse(c)}">${escHtml(c)}</span>`).join(' ') : '<span class="stat-sub">—</span>'}</td>
+      <td class="col-hide-m">${escHtml(r.dettagli || '—')}</td>
+      <td class="col-hide-m stat-sub" title="${escHtml(r.note)}">${escHtml(note)}</td>
+      <td class="vt-actions">${r.meetLink ? `<a class="grade-meet" href="${escHtml(r.meetLink)}" target="_blank" rel="noopener" title="Apri link Meet" onclick="event.stopPropagation()">${MEET_ICON}</a>` : ''}</td>
+    </tr>`;
+}
+function renderEventiElenco() {
+  const rows = eventiRows();
+  document.getElementById('eventi-count').textContent = `${rows.length} event${rows.length === 1 ? 'o' : 'i'}`;
+  document.getElementById('eventi-empty').classList.toggle('hidden', !!rows.length);
+  syncRaggruppaBtn('eventi');
+  const visibleKeys = new Set(rows.map(r => eventoKey(r.tipo, r.anno, r.id)));
+  [...state.eventiSelected].forEach(k => { if (!visibleKeys.has(k)) state.eventiSelected.delete(k); });
+  updateEventiBulkBar(rows);
+  const wrap = document.getElementById('eventi-wrap');
+  const panel = wrap.closest('.table-panel');
+  const groupsWrap = document.getElementById('eventi-groups');
+  const thead = `<th></th><th>Data</th><th>Ora</th><th>Tipo</th><th>Titolo</th><th>Classe</th><th class="col-hide-m">Dettagli</th><th class="col-hide-m">Note</th><th></th>`;
+  if (!rows.length) { wrap.innerHTML = ''; panel.classList.add('hidden'); groupsWrap.classList.add('hidden'); groupsWrap.innerHTML = ''; return; }
+  let container;
+  if (state.raggruppa.eventi) {
+    panel.classList.add('hidden');
+    groupsWrap.classList.remove('hidden');
+    // Più classi (uscite) → gruppo "3A, 4B", non una riga duplicata in ognuna
+    groupsWrap.innerHTML = groupedTablePanels(rows, r => r.classi.join(', '), thead, eventoRowHtml);
+    container = groupsWrap;
+  } else {
+    groupsWrap.classList.add('hidden'); groupsWrap.innerHTML = '';
+    panel.classList.remove('hidden');
+    wrap.innerHTML = `<table class="voti-table"><thead><tr>${thead}</tr></thead><tbody>${rows.map(eventoRowHtml).join('')}</tbody></table>`;
+    container = wrap;
+  }
+  container.querySelectorAll('.name-open').forEach(td => td.addEventListener('click', e => {
+    e.stopPropagation();
+    openItemNote(td.dataset.tipo, td.dataset.anno, td.dataset.id);
+  }));
+  container.querySelectorAll('tr[data-key]').forEach(row => row.addEventListener('click', e => {
+    if (e.target.closest('.grade-meet') || e.target.closest('.name-open')) return;
+    const key = row.dataset.key;
+    if (state.eventiSelected.has(key)) state.eventiSelected.delete(key);
+    else state.eventiSelected.add(key);
+    row.classList.toggle('selected');
+    updateEventiBulkBar(rows);
+  }));
+}
+function updateEventiBulkBar(rows) {
+  const bar = document.getElementById('eventi-bulk-bar');
+  const n = state.eventiSelected.size;
+  bar.classList.toggle('hidden', n === 0);
+  syncBulkEdit(bar, n);
+  document.getElementById('eventi-sel-count').textContent = `${n} event${n === 1 ? 'o' : 'i'} selezionat${n === 1 ? 'o' : 'i'}`;
+  const keys = (rows || eventiRows()).map(r => eventoKey(r.tipo, r.anno, r.id));
+  const allSel = keys.length > 0 && keys.every(k => state.eventiSelected.has(k));
+  const selAllBtn = document.getElementById('btn-eventi-select-all');
+  selAllBtn.classList.toggle('active', allSel);
+  selAllBtn.title = allSel ? 'Deseleziona tutto' : 'Seleziona tutto';
+}
+document.getElementById('btn-eventi-select-all').addEventListener('click', () => {
+  const keys = eventiRows().map(r => eventoKey(r.tipo, r.anno, r.id));
+  const allSel = keys.length > 0 && keys.every(k => state.eventiSelected.has(k));
+  if (allSel) keys.forEach(k => state.eventiSelected.delete(k));
+  else keys.forEach(k => state.eventiSelected.add(k));
+  renderEventiElenco();
+});
+document.getElementById('btn-eventi-elimina-bulk').addEventListener('click', async () => {
+  const sel = [...state.eventiSelected].map(eventoKeyParts);
+  if (!sel.length) return;
+  if (!confirm(`Eliminare ${sel.length} event${sel.length === 1 ? 'o' : 'i'}? L'azione è irreversibile.`)) return;
+  try {
+    // id degli eventi gemelli su Google Calendar, letti prima di eliminare
+    const gcalIds = sel.map(({ tipo, anno, id }) =>
+      tipo === 'colloquio' ? DB.getColloqui(anno).find(x => x.id === id)?.gcalEventId
+        : tipo === 'appuntamento' ? DB.getAppuntamenti(anno).find(x => x.id === id)?.gcalEventId : '').filter(Boolean);
+    for (const { tipo, anno, id } of sel) {
+      if (tipo === 'colloquio') await DB.removeColloquio(anno, id);
+      else if (tipo === 'appuntamento') await DB.removeAppuntamento(anno, id);
+      else await DB.removeUscita(anno, id);
+    }
+    state.eventiSelected.clear();
+    renderAll();
+    gcalIds.forEach(gid => GCal.deleteEvent(gid));
+  } catch (err) { alert('Errore durante l\'eliminazione: ' + err.message); }
+});
+
+// Modale "Orario di ricevimento" (prima era un pannello della sezione Colloqui)
+document.getElementById('btn-ricevimento').addEventListener('click', () => {
+  renderColloquioSlots();
+  document.getElementById('ricevimento-overlay').classList.remove('hidden');
+});
+function closeRicevimento() { document.getElementById('ricevimento-overlay').classList.add('hidden'); }
+document.getElementById('ricevimento-close').addEventListener('click', closeRicevimento);
+
+// "+" e clic su un giorno: nuovo evento (col selettore del tipo), del primo
+// tipo acceso nella legenda — colloquio, appuntamento o uscita
+function openNuovoEvento(data) {
+  const defaults = { data: data || todayISO() };
+  const f = state.calFilters;
+  if (f.colloqui) openColloquioNew(defaults);
+  else if (f.appuntamenti) openAppuntamentoNew(defaults);
+  else if (f.uscite) openUscitaNew(defaults);
+  else openColloquioNew(defaults);
+}
+document.getElementById('btn-add-evento').addEventListener('click', () => openNuovoEvento());
 document.querySelectorAll('#cal-view-toggle .seg-btn').forEach(btn => btn.addEventListener('click', () => {
   state.calView = btn.dataset.calv;
   renderCalendario();
@@ -5575,7 +5463,7 @@ function renderCalSettimana() {
       ${days.map(d => {
         const iso = toISO(d);
         const items = byDate[iso] || [];
-        return `<div class="cal-week-day ${iso === today ? 'today' : ''}">
+        return `<div class="cal-week-day ${iso === today ? 'today' : ''}" data-date="${iso}" title="Clic per un nuovo evento">
           <div class="cal-week-day-head ${iso === today ? 'is-today' : ''}">${DOW_LABELS[(d.getDay() + 6) % 7]} ${d.getDate()}</div>
           ${items.map(ev => `<div class="cal-week-chip" style="--chip-color:${ev.color}" data-tipo="${ev.tipo}" data-anno="${escHtml(ev.anno)}" data-id="${ev.id}" title="${escHtml([ev.label, ev.sub !== ev.label ? ev.sub : ''].filter(Boolean).join(' · '))}">${ev.ora ? escHtml(ev.ora) + ' · ' : ''}${escHtml(ev.label)}</div>`).join('')}
           ${!items.length ? '<div class="cal-week-empty">—</div>' : ''}
@@ -5583,8 +5471,11 @@ function renderCalSettimana() {
       }).join('')}
     </div>`;
 
-  document.querySelectorAll('#cal-week-wrap .cal-week-chip').forEach(chip => chip.addEventListener('click', () =>
-    openCalEvent({ tipo: chip.dataset.tipo, anno: chip.dataset.anno, id: chip.dataset.id })));
+  document.querySelectorAll('#cal-week-wrap .cal-week-chip').forEach(chip => chip.addEventListener('click', e => {
+    e.stopPropagation();
+    openCalEvent({ tipo: chip.dataset.tipo, anno: chip.dataset.anno, id: chip.dataset.id });
+  }));
+  document.querySelectorAll('#cal-week-wrap .cal-week-day').forEach(day => day.addEventListener('click', () => openNuovoEvento(day.dataset.date)));
 }
 
 function renderCalMese() {
@@ -5617,7 +5508,7 @@ function renderCalMese() {
     return `<div class="cal-day ${d.getMonth() !== month ? 'outside' : ''} ${iso === today ? 'today' : ''}" data-date="${iso}">
         <span class="cd-num">${d.getDate()}</span>
         <div class="cal-day-lessons">
-          ${shown.map(ev => `<div class="cal-lesson" style="--cls-color:${ev.color}" title="${escHtml([ev.label, ev.sub !== ev.label ? ev.sub : ''].filter(Boolean).join(' · '))}">${ev.ora ? escHtml(ev.ora) + ' · ' : ''}${escHtml(ev.label)}</div>`).join('')}
+          ${shown.map(ev => `<div class="cal-lesson cal-ev" data-tipo="${ev.tipo}" data-anno="${escHtml(ev.anno)}" data-id="${ev.id}" style="--cls-color:${ev.color}" title="${escHtml([ev.label, ev.sub !== ev.label ? ev.sub : ''].filter(Boolean).join(' · '))}">${ev.ora ? escHtml(ev.ora) + ' · ' : ''}${escHtml(ev.label)}</div>`).join('')}
           ${extra > 0 ? `<div class="cal-lesson-more">+${extra} altr${extra === 1 ? 'a' : 'e'}</div>` : ''}
         </div>
       </div>`;
@@ -5631,11 +5522,18 @@ function renderCalMese() {
   }
   grid.innerHTML = giorni.map(d => `<div class="cal-dow">${d}</div>`).join('') + cellsHtml;
 
-  grid.querySelectorAll('.cal-day').forEach(cell => cell.addEventListener('click', () => {
-    state.calRefDate = cell.dataset.date;
+  grid.querySelectorAll('.cal-ev').forEach(ev => ev.addEventListener('click', e => {
+    e.stopPropagation();
+    openCalEvent({ tipo: ev.dataset.tipo, anno: ev.dataset.anno, id: ev.dataset.id });
+  }));
+  // "+N altre": la settimana di quel giorno, dove si vedono tutti
+  grid.querySelectorAll('.cal-lesson-more').forEach(more => more.addEventListener('click', e => {
+    e.stopPropagation();
+    state.calRefDate = more.closest('.cal-day').dataset.date;
     state.calView = 'settimana';
     renderCalendario();
   }));
+  grid.querySelectorAll('.cal-day').forEach(cell => cell.addEventListener('click', () => openNuovoEvento(cell.dataset.date)));
 }
 
 function renderCalAgenda() {
@@ -7705,6 +7603,7 @@ document.addEventListener('keydown', e => {
   else if (!document.getElementById('lezione-overlay').classList.contains('hidden')) closeLezione();
   else if (!document.getElementById('orario-slot-overlay').classList.contains('hidden')) closeOrarioSlot();
   else if (!lezCsvOverlay.classList.contains('hidden')) closeLezCsv();
+  else if (!document.getElementById('ricevimento-overlay').classList.contains('hidden')) closeRicevimento();
   else if (state.view === 'alunno-detail') backFromStudent();
 });
 
@@ -8740,9 +8639,10 @@ onBulkEdit('bes', () => state.besSelected, id => openBesModal(state.students.fin
 onBulkEdit('lezioni', () => state.lezioniSelected, k => openLezione(...annoIdOf(k)));
 onBulkEdit('compiti', () => state.compitiSelected, k => openLezione(...annoIdOf(k)));
 onBulkEdit('todo', () => state.todoSelected, id => openTodoModal(DB.getTodos().find(t => t.id === id)));
-onBulkEdit('colloqui', () => state.colloquiSelected, k => openColloquio(...annoIdOf(k)));
-onBulkEdit('appuntamenti', () => state.appuntamentiSelected, k => openAppuntamento(...annoIdOf(k)));
-onBulkEdit('uscite', () => state.usciteSelected, k => openUscita(...annoIdOf(k)));
+onBulkEdit('eventi', () => state.eventiSelected, k => {
+  const { tipo, anno, id } = eventoKeyParts(k);
+  openCalEvent({ tipo, anno, id });
+});
 onBulkEdit('materiale', () => state.materialeSelected, id => {
   const rec = materialeAll().find(r => r.id === id);
   if (rec) openMaterialeModal(rec);

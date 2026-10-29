@@ -175,21 +175,9 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
             Orario
           </button>
-          <button class="subject-btn subject-btn-sub" data-view="colloqui">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-            Colloqui
-          </button>
-          <button class="subject-btn subject-btn-sub" data-view="appuntamenti">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg>
-            Appuntamenti
-          </button>
           <button class="subject-btn subject-btn-sub" data-view="calendario">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
             Calendario
-          </button>
-          <button class="subject-btn subject-btn-sub" data-view="uscite">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>
-            Uscite didattiche
           </button>
         </div>
       </div>
@@ -1044,129 +1032,8 @@
       </div>
     </section>
 
-    <!-- Colloqui view: orario ricorrente di ricevimento (finisce anche in
-         Orario) + elenco dei singoli colloqui con le famiglie -->
-    <section id="view-colloqui" class="hidden">
-      <div class="panel" style="margin-bottom:16px">
-        <div class="panel-head"><span class="panel-title">Orario di ricevimento</span></div>
-        <div class="coll-slots-list" id="coll-slots-list"></div>
-        <p class="stat-sub">Giorno/ora ricorrenti (finiscono anche in Orario) e periodo di validità: viene creato automaticamente un appuntamento libero per ogni settimana nel periodo — compaiono subito nell'elenco sotto.</p>
-        <div class="coll-slot-form">
-          <label class="vf-label">Giorno<select class="vf-input" id="coll-slot-giorno"></select></label>
-          <label class="vf-label">Ora<select class="vf-input" id="coll-slot-ora"></select></label>
-          <label class="vf-label">Dal<input type="date" class="vf-input" id="coll-slot-da"/></label>
-          <label class="vf-label">Al<input type="date" class="vf-input" id="coll-slot-a"/></label>
-          <button class="btn-primary" type="button" id="coll-slot-add">+ Aggiungi</button>
-        </div>
-      </div>
 
-      <div class="view-toolbar notion-toolbar">
-        <span class="toolbar-info" id="colloqui-count"></span>
-        <button class="btn-icon btn-raggruppa" data-rg="colloqui" title="Raggruppa per classe">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-        </button>
-        <button class="btn-icon btn-icon-primary" id="btn-add-colloquio" title="Nuovo colloquio">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        </button>
-      </div>
-      <div class="floating-bulk-bar hidden" id="colloqui-bulk-bar">
-        <span class="toolbar-info" id="colloqui-sel-count"></span>
-        <button class="btn-icon" id="btn-colloqui-select-all" title="Seleziona tutto">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><polyline points="8 12 11 15 16 9"/></svg>
-        </button>
-        <button class="btn-icon bulk-edit-btn hidden" id="btn-colloqui-modifica-bulk" title="Modifica">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        </button>
-        <button class="btn-icon btn-icon-danger" id="btn-colloqui-elimina-bulk" title="Elimina selezionati">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-        </button>
-      </div>
-      <div class="panel table-panel">
-        <div class="table-wrap" id="colloqui-wrap"></div>
-      </div>
-      <div id="colloqui-groups" class="hidden"></div>
-      <div class="empty-state hidden" id="colloqui-empty">
-        <div class="empty-icon">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        </div>
-        <h3>Nessun colloquio programmato</h3>
-        <p>Aggiungi un colloquio con "+ Colloquio".</p>
-      </div>
-    </section>
 
-    <!-- Appuntamenti view: collegi docenti, consigli di classe, incontri
-         (anche pomeridiani o online) — sezione a sé, separata dai Colloqui -->
-    <section id="view-appuntamenti" class="hidden">
-      <div class="view-toolbar notion-toolbar">
-        <span class="toolbar-info" id="appuntamenti-count"></span>
-        <button class="btn-icon btn-raggruppa" data-rg="appuntamenti" title="Raggruppa per classe">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-        </button>
-        <button class="btn-icon btn-icon-primary" id="btn-add-appuntamento" title="Nuovo appuntamento">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        </button>
-      </div>
-      <div class="floating-bulk-bar hidden" id="appuntamenti-bulk-bar">
-        <span class="toolbar-info" id="appuntamenti-sel-count"></span>
-        <button class="btn-icon" id="btn-appuntamenti-select-all" title="Seleziona tutto">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><polyline points="8 12 11 15 16 9"/></svg>
-        </button>
-        <button class="btn-icon bulk-edit-btn hidden" id="btn-appuntamenti-modifica-bulk" title="Modifica">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        </button>
-        <button class="btn-icon btn-icon-danger" id="btn-appuntamenti-elimina-bulk" title="Elimina selezionati">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-        </button>
-      </div>
-      <div class="panel table-panel">
-        <div class="table-wrap" id="appuntamenti-wrap"></div>
-      </div>
-      <div id="appuntamenti-groups" class="hidden"></div>
-      <div class="empty-state hidden" id="appuntamenti-empty">
-        <div class="empty-icon">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        </div>
-        <h3>Nessun appuntamento</h3>
-        <p>Aggiungi un collegio, un consiglio di classe o un incontro con "+ Appuntamento".</p>
-      </div>
-    </section>
-
-    <!-- Uscite didattiche: titolo, giorno, ora inizio/fine, classe.
-         Compaiono anche in Dashboard, Calendario e Lezioni -->
-    <section id="view-uscite" class="hidden">
-      <div class="view-toolbar notion-toolbar">
-        <span class="toolbar-info" id="uscite-count"></span>
-        <button class="btn-icon btn-raggruppa" data-rg="uscite" title="Raggruppa per classe">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-        </button>
-        <button class="btn-icon btn-icon-primary" id="btn-add-uscita" title="Nuova uscita didattica">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        </button>
-      </div>
-      <div class="floating-bulk-bar hidden" id="uscite-bulk-bar">
-        <span class="toolbar-info" id="uscite-sel-count"></span>
-        <button class="btn-icon" id="btn-uscite-select-all" title="Seleziona tutto">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><polyline points="8 12 11 15 16 9"/></svg>
-        </button>
-        <button class="btn-icon bulk-edit-btn hidden" id="btn-uscite-modifica-bulk" title="Modifica">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        </button>
-        <button class="btn-icon btn-icon-danger" id="btn-uscite-elimina-bulk" title="Elimina selezionate">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-        </button>
-      </div>
-      <div class="panel table-panel">
-        <div class="table-wrap" id="uscite-wrap"></div>
-      </div>
-      <div id="uscite-groups" class="hidden"></div>
-      <div class="empty-state hidden" id="uscite-empty">
-        <div class="empty-icon">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>
-        </div>
-        <h3>Nessuna uscita didattica</h3>
-        <p>Aggiungi un'uscita con "+".</p>
-      </div>
-    </section>
 
     <!-- Nota (Colloquio/Appuntamento): pagina dedicata nel main, non modale —
          aperta cliccando sul nome/oggetto in tabella. I campi data/ora/ecc.
@@ -1210,12 +1077,27 @@
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
             Agenda
           </button>
+          <button class="seg-btn" data-calv="elenco">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            Elenco
+          </button>
         </div>
-        <div class="cal-legend" id="cal-legend">
-          <button class="cal-legend-chip active" data-src="colloqui">Colloqui</button>
-          <button class="cal-legend-chip active" data-src="appuntamenti">Appuntamenti</button>
-          <button class="cal-legend-chip active" data-src="uscite">Uscite didattiche</button>
-        </div>
+        <span class="toolbar-info hidden" id="eventi-count"></span>
+        <span class="toolbar-spacer"></span>
+        <button class="btn-icon btn-raggruppa" data-rg="eventi" id="btn-eventi-raggruppa" title="Raggruppa per classe">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+          </button>
+        <button class="btn-icon" id="btn-ricevimento" title="Orario di ricevimento">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
+        </button>
+        <button class="btn-icon btn-icon-primary" id="btn-add-evento" title="Nuovo evento (anche: clic su un giorno)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+      </div>
+      <div class="cal-legend cal-legend-row" id="cal-legend">
+        <button class="cal-legend-chip active" data-src="colloqui">Colloqui</button>
+        <button class="cal-legend-chip active" data-src="appuntamenti">Appuntamenti</button>
+        <button class="cal-legend-chip active" data-src="uscite">Uscite didattiche</button>
       </div>
 
       <div id="cal-settimana-view">
@@ -1247,6 +1129,33 @@
             </button>
           </div>
           <div class="cal-grid" id="cal-calendar-grid"></div>
+        </div>
+      </div>
+
+      <!-- Elenco: le tabelle di Colloqui, Appuntamenti e Uscite (con azioni di
+           gruppo e Raggruppa), mostrate secondo le chip della legenda -->
+      <!-- Elenco: un'unica tabella con colloqui, appuntamenti e uscite (secondo
+           le chip della legenda), azioni di gruppo e Raggruppa per classe -->
+      <div id="cal-elenco-view" class="hidden">
+        <div class="floating-bulk-bar hidden" id="eventi-bulk-bar">
+          <span class="toolbar-info" id="eventi-sel-count"></span>
+          <button class="btn-icon" id="btn-eventi-select-all" title="Seleziona tutto">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><polyline points="8 12 11 15 16 9"/></svg>
+          </button>
+          <button class="btn-icon bulk-edit-btn hidden" id="btn-eventi-modifica-bulk" title="Modifica">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </button>
+          <button class="btn-icon btn-icon-danger" id="btn-eventi-elimina-bulk" title="Elimina selezionati">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          </button>
+        </div>
+        <div class="panel table-panel">
+          <div class="table-wrap" id="eventi-wrap"></div>
+        </div>
+        <div id="eventi-groups" class="hidden"></div>
+        <div class="empty-state hidden" id="eventi-empty">
+          <h3>Nessun evento</h3>
+          <p>Aggiungi un colloquio, un appuntamento o un'uscita con "+", oppure riaccendi i tipi nella legenda.</p>
         </div>
       </div>
 
@@ -1590,6 +1499,27 @@
       <button class="btn-primary" id="lez-csv-choose" type="button">Scegli file…</button>
     </div>
     <input type="file" id="lez-csv-file" accept=".csv,text/csv" hidden/>
+  </div>
+</div>
+
+<!-- ── Modal orario di ricevimento (giorno/ora ricorrenti + generazione appuntamenti liberi) -->
+<div class="modal-overlay hidden" id="ricevimento-overlay">
+  <div class="modal-box modal-box-sm">
+    <div class="modal-header">
+      <h2 class="modal-title">Orario di ricevimento</h2>
+      <button class="btn-icon modal-close" id="ricevimento-close" aria-label="Chiudi">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+      <div class="coll-slots-list" id="coll-slots-list"></div>
+      <p class="stat-sub">Giorno/ora ricorrenti (finiscono anche in Orario) e periodo di validità: viene creato automaticamente un appuntamento libero per ogni settimana nel periodo — compaiono subito nell'elenco sotto.</p>
+      <div class="coll-slot-form">
+        <label class="vf-label">Giorno<select class="vf-input" id="coll-slot-giorno"></select></label>
+        <label class="vf-label">Ora<select class="vf-input" id="coll-slot-ora"></select></label>
+        <label class="vf-label">Dal<input type="date" class="vf-input" id="coll-slot-da"/></label>
+        <label class="vf-label">Al<input type="date" class="vf-input" id="coll-slot-a"/></label>
+        <button class="btn-primary" type="button" id="coll-slot-add">+ Aggiungi</button>
+      </div>
   </div>
 </div>
 

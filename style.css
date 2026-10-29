@@ -1768,3 +1768,15 @@ textarea.vf-input { resize: vertical; min-height: 64px; }
 }
 .undo-toast .btn-link { font-size: 12.5px; }
 @media (max-width: 640px) { .undo-toast { left: 16px; right: 16px; bottom: 84px; justify-content: space-between; } }
+
+/* Giorni cliccabili (nuovo evento) in Settimana e Mese */
+#cal-week-wrap .cal-week-day, #cal-calendar-grid .cal-day { cursor: pointer; }
+#cal-week-wrap .cal-week-day:hover, #cal-calendar-grid .cal-day:hover { background: var(--bg3); }
+#cal-calendar-grid .cal-lesson-more { cursor: pointer; }
+#cal-calendar-grid .cal-lesson-more:hover { color: var(--accent-blue); }
+
+/* Calendario: conteggio accanto ai tab vista, azioni (Raggruppa, Orario di
+   ricevimento, "+") tutte a destra; le chip dei tipi in una riga sotto i tab */
+.toolbar-spacer { flex: 1; }
+#eventi-count { margin-right: 0; }
+.cal-legend-row { margin: -6px 0 16px; justify-content: flex-start; }
